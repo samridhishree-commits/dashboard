@@ -1,8 +1,16 @@
 import 'dotenv/config'
 import cors from 'cors'
 import express from 'express'
+import {
+  getAnalyticsLeads,
+  getAnalyticsSummary,
+  getCampaignAnalytics,
+  getRecentWebhooks,
+  ingestWebhook,
+} from './analytics.js'
 import { addLead, archiveLead, fetchLeads, getCampaignId } from './convin.js'
 import { isEncryptionEnabled } from './crypto.js'
+import { dbPing, initDb } from './db.js'
 
 const app = express()
 const PORT = Number(process.env.PORT || 8787)
@@ -15,7 +23,6 @@ const origins = (process.env.CORS_ORIGINS || '*')
 app.use(
   cors({
     origin(origin, cb) {
-      // No Origin header (server-to-server / health checks) always allowed
       if (!origin || origins.includes('*') || origins.includes(origin)) {
         cb(null, true)
         return
@@ -26,12 +33,14 @@ app.use(
 )
 app.use(express.json({ limit: '2mb' }))
 
-app.get('/health', (_req, res) => {
+app.get('/health', async (_req, res) => {
+  const db = await dbPing()
   res.json({
     ok: true,
     campaign_id: process.env.CONVIN_CAMPAIGN_ID || null,
     encryption: isEncryptionEnabled(),
     has_credentials: Boolean(process.env.CONVIN_API_KEY && process.env.CONVIN_API_TOKEN),
+    database: db,
   })
 })
 
@@ -151,28 +160,104 @@ app.post('/api/leads/fetch', async (req, res) => {
 })
 
 /**
- * Vendor webhook endpoint — give this URL to Convin.
- * POST https://<your-render-host>/webhooks/convin
+ * Vendor webhook — Convin CRM Push.
+ * Maps Hot/Warm/Cold → verified / uninterested / in_progress and upserts Postgres.
  */
-const webhookEvents = []
-app.post('/webhooks/convin', (req, res) => {
-  const event = {
-    receivedAt: new Date().toISOString(),
-    headers: {
+app.post('/webhooks/convin', async (req, res) => {
+  try {
+    const result = await ingestWebhook(req.body, {
       'content-type': req.headers['content-type'],
       'x-convin-signature': req.headers['x-convin-signature'],
-    },
-    body: req.body,
+    })
+    console.info(
+      '[webhook/convin]',
+      result.external_id,
+      result.client_status,
+      result.persisted ? 'saved' : 'no-db',
+    )
+    res.status(200).json({
+      status: 'success',
+      message: 'Webhook received',
+      client_status: result.client_status,
+      external_id: result.external_id,
+      persisted: result.persisted,
+    })
+  } catch (err) {
+    console.error('[webhook/convin]', err)
+    // Still 200 so Convin does not endlessly retry on our bug — log and fix.
+    // Change to 500 if you prefer vendor retries.
+    res.status(500).json({
+      status: 'error',
+      message: err instanceof Error ? err.message : 'Webhook failed',
+    })
   }
-  webhookEvents.unshift(event)
-  if (webhookEvents.length > 200) webhookEvents.length = 200
-  console.info('[webhook/convin]', JSON.stringify(event).slice(0, 2000))
-  res.status(200).json({ status: 'success', message: 'Webhook received' })
 })
 
-/** Debug: recent webhook payloads (remove in prod if sensitive). */
-app.get('/webhooks/convin/recent', (_req, res) => {
-  res.json({ count: webhookEvents.length, events: webhookEvents.slice(0, 50) })
+app.get('/webhooks/convin/recent', async (req, res) => {
+  try {
+    const events = await getRecentWebhooks(req.query.limit)
+    res.json({ count: events.length, events })
+  } catch (err) {
+    res.status(500).json({
+      status: 'error',
+      message: err instanceof Error ? err.message : 'Failed to load webhooks',
+    })
+  }
+})
+
+/** Analytics KPIs for a campaign (defaults to fixed CONVIN_CAMPAIGN_ID). */
+app.get('/api/analytics/campaign/:campaignId?', async (req, res) => {
+  try {
+    const campaignId = req.params.campaignId || req.query.campaign_id || process.env.CONVIN_CAMPAIGN_ID
+    const data = await getCampaignAnalytics(campaignId)
+    res.json({ status: 'success', ...data })
+  } catch (err) {
+    res.status(500).json({
+      status: 'error',
+      message: err instanceof Error ? err.message : 'Analytics failed',
+    })
+  }
+})
+
+app.get('/api/analytics/campaign', async (req, res) => {
+  try {
+    const data = await getCampaignAnalytics(req.query.campaign_id || process.env.CONVIN_CAMPAIGN_ID)
+    res.json({ status: 'success', ...data })
+  } catch (err) {
+    res.status(500).json({
+      status: 'error',
+      message: err instanceof Error ? err.message : 'Analytics failed',
+    })
+  }
+})
+
+app.get('/api/analytics/leads', async (req, res) => {
+  try {
+    const data = await getAnalyticsLeads({
+      campaign_id: req.query.campaign_id,
+      external_id: req.query.external_id,
+      limit: req.query.limit,
+      offset: req.query.offset,
+    })
+    res.json({ status: 'success', ...data })
+  } catch (err) {
+    res.status(500).json({
+      status: 'error',
+      message: err instanceof Error ? err.message : 'Leads analytics failed',
+    })
+  }
+})
+
+app.get('/api/analytics/summary', async (_req, res) => {
+  try {
+    const data = await getAnalyticsSummary()
+    res.json({ status: 'success', ...data })
+  } catch (err) {
+    res.status(500).json({
+      status: 'error',
+      message: err instanceof Error ? err.message : 'Summary failed',
+    })
+  }
 })
 
 app.use((err, _req, res, _next) => {
@@ -180,6 +265,7 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ status: 'error', message: err.message || 'Server error' })
 })
 
+await initDb()
 app.listen(PORT, () => {
   console.log(`API listening on :${PORT}`)
   console.log(`Campaign: ${process.env.CONVIN_CAMPAIGN_ID || '(unset)'}`)
