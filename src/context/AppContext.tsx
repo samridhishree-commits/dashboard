@@ -1,0 +1,461 @@
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react'
+import { seedCampaigns, institutes as seedInstitutes } from '../data/mockData'
+import type {
+  Campaign,
+  CampaignStatus,
+  Channel,
+  ClientLeadStatus,
+  GlobalFilters,
+  Institute,
+  Lead,
+  OpenTab,
+  VoicebotType,
+} from '../types'
+import { archiveLeadOnConvin, pushLeadsToConvin } from '../services/backend'
+import { filterConvinReadyLeads, toConvinPayload } from '../utils/leads'
+
+const defaultFilters: GlobalFilters = {
+  search: '',
+  dateFrom: '',
+  dateTo: '',
+  username: '',
+  course: 'All Courses',
+  status: 'All',
+}
+
+interface AppState {
+  institutes: Institute[]
+  campaigns: Campaign[]
+  filters: GlobalFilters
+  openTabs: OpenTab[]
+  activeTabId: string | null
+  activeCampaignId: string | null
+  runningCampaignId: string | null
+  runProgress: number
+  setFilters: (patch: Partial<GlobalFilters>) => void
+  resetFilters: () => void
+  addInstitute: (name: string, username: string) => void
+  createCampaign: (
+    instituteId: string,
+    name: string,
+    course: string,
+    leads: Lead[],
+    channel?: Channel,
+  ) => Campaign
+  channelCampaigns: (instituteId: string, channel: Channel) => Campaign[]
+  instituteCampaigns: (instituteId: string) => Campaign[]
+  getCampaign: (id: string) => Campaign | undefined
+  openCampaignTab: (campaign: Campaign) => void
+  closeTab: (tabId: string) => void
+  setActiveTab: (tabId: string | null) => void
+  setActiveCampaignId: (id: string | null) => void
+  startVoicebotRun: (campaignId: string, type: VoicebotType) => Promise<void>
+  archiveLead: (campaignId: string, leadId: string) => Promise<void>
+  setCampaignStatus: (campaignId: string, status: CampaignStatus) => void
+  lastPushError: string | null
+  clearLastPushError: () => void
+}
+
+const AppContext = createContext<AppState | null>(null)
+
+function uid(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+}
+
+export function AppProvider({ children }: { children: ReactNode }) {
+  const [institutes, setInstitutes] = useState(seedInstitutes)
+  const [campaigns, setCampaigns] = useState(seedCampaigns)
+  const [filters, setFiltersState] = useState<GlobalFilters>(defaultFilters)
+  const [openTabs, setOpenTabs] = useState<OpenTab[]>([])
+  const [activeTabId, setActiveTabId] = useState<string | null>(null)
+  const [activeCampaignId, setActiveCampaignId] = useState<string | null>(null)
+  const [runningCampaignId, setRunningCampaignId] = useState<string | null>(null)
+  const [runProgress, setRunProgress] = useState(0)
+  const [lastPushError, setLastPushError] = useState<string | null>(null)
+
+  const clearLastPushError = useCallback(() => setLastPushError(null), [])
+
+  const setFilters = useCallback((patch: Partial<GlobalFilters>) => {
+    setFiltersState((prev) => ({ ...prev, ...patch }))
+  }, [])
+
+  const resetFilters = useCallback(() => {
+    setFiltersState(defaultFilters)
+  }, [])
+
+  const addInstitute = useCallback((name: string, username: string) => {
+    setInstitutes((prev) => [
+      ...prev,
+      {
+        id: uid('inst'),
+        name,
+        username,
+        createdAt: new Date().toISOString().slice(0, 10),
+        functional: true,
+      },
+    ])
+  }, [])
+
+  const createCampaign = useCallback(
+    (
+      instituteId: string,
+      name: string,
+      course: string,
+      leads: Lead[],
+      channel?: Channel,
+    ) => {
+      const campaign: Campaign = {
+        id: uid('camp'),
+        instituteId,
+        name,
+        course,
+        createdAt: new Date().toISOString().slice(0, 10),
+        status: leads.length ? (channel ? 'running' : 'ready') : 'draft',
+        channel,
+        minutesConsumed: channel === 'voicebot' ? 0 : undefined,
+        leads,
+      }
+      setCampaigns((prev) => [campaign, ...prev])
+      setActiveCampaignId(campaign.id)
+      return campaign
+    },
+    [],
+  )
+
+  const openCampaignTab = useCallback((campaign: Campaign) => {
+    setActiveCampaignId(campaign.id)
+  }, [])
+
+  const closeTab = useCallback(
+    (tabId: string) => {
+      setOpenTabs((prev) => {
+        const closing = prev.find((t) => t.id === tabId)
+        const next = prev.filter((t) => t.id !== tabId)
+        if (activeTabId === tabId) {
+          const fallback = next[next.length - 1]
+          setActiveTabId(fallback?.id ?? null)
+          setActiveCampaignId(fallback?.campaignId ?? null)
+        } else if (closing && activeCampaignId === closing.campaignId) {
+          setActiveCampaignId(null)
+        }
+        return next
+      })
+    },
+    [activeTabId, activeCampaignId],
+  )
+
+  const setActiveTab = useCallback(
+    (tabId: string | null) => {
+      setActiveTabId(tabId)
+      if (!tabId) {
+        setActiveCampaignId(null)
+        return
+      }
+      const tab = openTabs.find((t) => t.id === tabId)
+      if (tab) setActiveCampaignId(tab.campaignId)
+    },
+    [openTabs],
+  )
+
+  const startVoicebotRun = useCallback(async (campaignId: string, type: VoicebotType) => {
+    const campaign = campaigns.find((c) => c.id === campaignId)
+    if (!campaign) return
+
+    const ready = filterConvinReadyLeads(campaign.leads)
+    const payload = ready
+      .map((l) => toConvinPayload(l))
+      .filter((p): p is NonNullable<typeof p> => p !== null)
+    const skippedInvalid = campaign.leads.filter((l) => !l.archived && !l.phoneValid).length
+
+    setLastPushError(null)
+    setCampaigns((prev) =>
+      prev.map((c) =>
+        c.id === campaignId
+          ? {
+              ...c,
+              status: 'running' as CampaignStatus,
+              channel: 'voicebot' as Channel,
+              voicebotType: type,
+              lastConvinPush: {
+                at: new Date().toISOString(),
+                leadCount: payload.length,
+                skippedInvalid,
+                payload,
+              },
+            }
+          : c,
+      ),
+    )
+    setRunningCampaignId(campaignId)
+    setRunProgress(8)
+
+    if (!payload.length) {
+      setCampaigns((prev) =>
+        prev.map((c) =>
+          c.id === campaignId
+            ? {
+                ...c,
+                status: 'ready' as CampaignStatus,
+                leads: c.leads.map((l) =>
+                  !l.phoneValid
+                    ? {
+                        ...l,
+                        clientStatus: 'in_progress' as ClientLeadStatus,
+                        currentState: 'Invalid phone · not sent to Convin',
+                        convinPushStatus: 'skipped_invalid' as const,
+                        voicebotNote: 'Skipped — invalid phone number.',
+                      }
+                    : l,
+                ),
+              }
+            : c,
+        ),
+      )
+      setLastPushError('No valid leads to upload to Convin.')
+      setRunProgress(100)
+      window.setTimeout(() => {
+        setRunningCampaignId(null)
+        setRunProgress(0)
+      }, 600)
+      return
+    }
+
+    // Indeterminate progress while backend pushes sequentially
+    const tick = window.setInterval(() => {
+      setRunProgress((p) => (p >= 90 ? 90 : p + 4))
+    }, 400)
+
+    try {
+      const res = await pushLeadsToConvin(
+        payload.map((p) => ({
+          external_id: p.external_id,
+          phone_number: p.phone_number,
+          name: p.name,
+        })),
+      )
+
+      const byExternal = new Map(
+        res.results.map((r) => [r.external_id || '', r] as const),
+      )
+
+      setCampaigns((prev) =>
+        prev.map((c) =>
+          c.id === campaignId
+            ? {
+                ...c,
+                status: 'running' as CampaignStatus,
+                leads: c.leads.map((l) => {
+                  if (!l.phoneValid) {
+                    return {
+                      ...l,
+                      clientStatus: 'in_progress' as ClientLeadStatus,
+                      currentState: 'Invalid phone · not sent to Convin',
+                      convinPushStatus: 'skipped_invalid' as const,
+                      voicebotNote: 'Skipped — invalid phone number.',
+                    }
+                  }
+                  const row = byExternal.get(l.external_id)
+                  if (!row) {
+                    return {
+                      ...l,
+                      clientStatus: 'in_progress' as ClientLeadStatus,
+                      currentState: 'Not sent',
+                    }
+                  }
+                  const ok = row.status === 'success' || row.status === 'duplicate'
+                  return {
+                    ...l,
+                    convinLeadId: row.lead_id || l.convinLeadId,
+                    convinPushStatus:
+                      row.status === 'duplicate'
+                        ? ('duplicate' as const)
+                        : row.status === 'success'
+                          ? ('success' as const)
+                          : ('error' as const),
+                    convinPushMessage: row.message || undefined,
+                    clientStatus: 'in_progress' as ClientLeadStatus,
+                    currentState: ok
+                      ? row.status === 'duplicate'
+                        ? 'Uploaded (already in Convin)'
+                        : 'Uploaded to Convin · In Progress'
+                      : `Upload failed: ${row.message || 'error'}`,
+                    voicebotNote: ok
+                      ? 'Lead uploaded to Convin. Outcomes will sync via webhook / fetch.'
+                      : row.message || 'Convin upload failed.',
+                    lastActivity: new Date().toLocaleString(),
+                  }
+                }),
+              }
+            : c,
+        ),
+      )
+
+      const { success, duplicate, failed } = res.totals
+      if (failed > 0 && success + duplicate === 0) {
+        setLastPushError(`All uploads failed (${failed}). Check API credentials / encryption.`)
+        setCampaigns((prev) =>
+          prev.map((c) =>
+            c.id === campaignId ? { ...c, status: 'failed' as CampaignStatus } : c,
+          ),
+        )
+      } else if (failed > 0) {
+        setLastPushError(
+          `Uploaded ${success + duplicate}/${res.totals.total} (${duplicate} duplicate, ${failed} failed).`,
+        )
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Upload failed'
+      setLastPushError(msg)
+      setCampaigns((prev) =>
+        prev.map((c) =>
+          c.id === campaignId ? { ...c, status: 'failed' as CampaignStatus } : c,
+        ),
+      )
+    } finally {
+      window.clearInterval(tick)
+      setRunProgress(100)
+      window.setTimeout(() => {
+        setRunningCampaignId(null)
+        setRunProgress(0)
+      }, 700)
+    }
+  }, [campaigns])
+
+  const archiveLead = useCallback(async (campaignId: string, leadId: string) => {
+    const campaign = campaigns.find((c) => c.id === campaignId)
+    const lead = campaign?.leads.find((l) => l.id === leadId)
+    if (!lead) return
+
+    // Optimistic local archive
+    setCampaigns((prev) =>
+      prev.map((c) =>
+        c.id === campaignId
+          ? {
+              ...c,
+              leads: c.leads.map((l) =>
+                l.id === leadId ? { ...l, archived: true } : l,
+              ),
+            }
+          : c,
+      ),
+    )
+
+    // Only call Convin if lead was (or may have been) pushed
+    if (!lead.phoneValid || lead.convinPushStatus === 'skipped_invalid') return
+
+    try {
+      await archiveLeadOnConvin(lead.external_id, 'Archived from CRM')
+    } catch (err) {
+      console.error('[archive]', err)
+      // Roll back local archive on API failure
+      setCampaigns((prev) =>
+        prev.map((c) =>
+          c.id === campaignId
+            ? {
+                ...c,
+                leads: c.leads.map((l) =>
+                  l.id === leadId ? { ...l, archived: false } : l,
+                ),
+              }
+            : c,
+        ),
+      )
+      setLastPushError(
+        err instanceof Error
+          ? `Archive failed: ${err.message}`
+          : 'Archive failed on Convin',
+      )
+    }
+  }, [campaigns])
+
+  const setCampaignStatus = useCallback((campaignId: string, status: CampaignStatus) => {
+    setCampaigns((prev) =>
+      prev.map((c) => (c.id === campaignId ? { ...c, status } : c)),
+    )
+  }, [])
+
+  const getCampaign = useCallback(
+    (id: string) => campaigns.find((c) => c.id === id),
+    [campaigns],
+  )
+
+  const instituteCampaigns = useCallback(
+    (instituteId: string) => campaigns.filter((c) => c.instituteId === instituteId),
+    [campaigns],
+  )
+
+  const channelCampaigns = useCallback(
+    (instituteId: string, channel: Channel) =>
+      campaigns.filter((c) => c.instituteId === instituteId && c.channel === channel),
+    [campaigns],
+  )
+
+  const value = useMemo(
+    () => ({
+      institutes,
+      campaigns,
+      filters,
+      openTabs,
+      activeTabId,
+      activeCampaignId,
+      runningCampaignId,
+      runProgress,
+      lastPushError,
+      clearLastPushError,
+      setFilters,
+      resetFilters,
+      addInstitute,
+      createCampaign,
+      openCampaignTab,
+      closeTab,
+      setActiveTab,
+      setActiveCampaignId,
+      startVoicebotRun,
+      archiveLead,
+      setCampaignStatus,
+      getCampaign,
+      instituteCampaigns,
+      channelCampaigns,
+    }),
+    [
+      institutes,
+      campaigns,
+      filters,
+      openTabs,
+      activeTabId,
+      activeCampaignId,
+      runningCampaignId,
+      runProgress,
+      lastPushError,
+      clearLastPushError,
+      setFilters,
+      resetFilters,
+      addInstitute,
+      createCampaign,
+      openCampaignTab,
+      closeTab,
+      setActiveTab,
+      startVoicebotRun,
+      archiveLead,
+      setCampaignStatus,
+      getCampaign,
+      instituteCampaigns,
+      channelCampaigns,
+    ],
+  )
+
+  return <AppContext.Provider value={value}>{children}</AppContext.Provider>
+}
+
+export function useApp() {
+  const ctx = useContext(AppContext)
+  if (!ctx) throw new Error('useApp must be used within AppProvider')
+  return ctx
+}

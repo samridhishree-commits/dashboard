@@ -1,0 +1,4 @@
+phone_number*,external_id,first_name,last_name,email,city,state,course,company,language_preference,consent_email,consent_sms,consent_whatsapp
+9876543210,EXT001,Rahul,Sharma,rahul@example.com,Bengaluru,Karnataka,B.Tech CSE,,en,true,true,false
++919988776655,EXT002,Priya,Patel,priya@example.com,Ahmedabad,Gujarat,MBA,,en,true,false,true
+08012345678,EXT003,Amit,Kumar,amit@example.com,Patna,Bihar,MBBS,,hi,false,true,false
