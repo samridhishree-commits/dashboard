@@ -11,6 +11,7 @@ import {
 import { addLead, archiveLead, fetchLeads, getCampaignId } from './convin.js'
 import { isEncryptionEnabled } from './crypto.js'
 import { dbPing, initDb } from './db.js'
+import { renderDocsHtml } from './docs.js'
 
 const app = express()
 const PORT = Number(process.env.PORT || 8787)
@@ -32,6 +33,14 @@ app.use(
   }),
 )
 app.use(express.json({ limit: '2mb' }))
+
+app.get('/', (_req, res) => {
+  res.redirect(302, '/docs')
+})
+
+app.get('/docs', (_req, res) => {
+  res.type('html').send(renderDocsHtml())
+})
 
 app.get('/health', async (_req, res) => {
   const db = await dbPing()
