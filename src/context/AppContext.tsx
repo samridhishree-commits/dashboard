@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -19,6 +20,14 @@ import type {
   VoicebotType,
 } from '../types'
 import { archiveLeadOnConvin, pushLeadsToConvin } from '../services/backend'
+import {
+  archiveCrmLead,
+  listCrmCampaigns,
+  patchCrmCampaignStatus,
+  saveCrmCampaign,
+  saveCrmLeads,
+  saveCrmPushResults,
+} from '../services/crm'
 import { filterConvinReadyLeads, toConvinPayload } from '../utils/leads'
 
 const defaultFilters: GlobalFilters = {
@@ -83,6 +92,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const clearLastPushError = useCallback(() => setLastPushError(null), [])
 
+  // Restore OUR CRM campaigns/leads from Postgres (camp-* ids). Never uses Convin campaign_id.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const fromDb = await listCrmCampaigns()
+        if (cancelled || !fromDb.length) return
+        setCampaigns((prev) => {
+          const map = new Map(prev.map((c) => [c.id, c]))
+          for (const c of fromDb) map.set(c.id, c)
+          return Array.from(map.values())
+        })
+      } catch (err) {
+        console.warn('[crm] load campaigns failed', err)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const setFilters = useCallback((patch: Partial<GlobalFilters>) => {
     setFiltersState((prev) => ({ ...prev, ...patch }))
   }, [])
@@ -126,6 +156,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       setCampaigns((prev) => [campaign, ...prev])
       setActiveCampaignId(campaign.id)
+      void saveCrmCampaign(campaign).catch((err) =>
+        console.warn('[crm] save campaign failed', err),
+      )
       return campaign
     },
     [],
@@ -133,8 +166,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const addLeadsToCampaign = useCallback((campaignId: string, leads: Lead[]) => {
     if (!leads.length) return
-    setCampaigns((prev) =>
-      prev.map((c) => {
+    setCampaigns((prev) => {
+      const next = prev.map((c) => {
         if (c.id !== campaignId) return c
         const nextLeads = [...c.leads, ...leads]
         const nextStatus: CampaignStatus =
@@ -144,8 +177,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
               : 'draft'
             : c.status
         return { ...c, leads: nextLeads, status: nextStatus }
-      }),
-    )
+      })
+      const camp = next.find((c) => c.id === campaignId)
+      if (camp) {
+        void saveCrmLeads(campaignId, leads, camp).catch((err) =>
+          console.warn('[crm] save leads failed', err),
+        )
+      }
+      return next
+    })
   }, [])
 
   const openCampaignTab = useCallback((campaign: Campaign) => {
@@ -339,6 +379,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
           `Uploaded ${success + duplicate}/${res.totals.total} (${duplicate} duplicate, ${failed} failed).`,
         )
       }
+
+      // Persist push outcomes under OUR campaign id (Convin push API unchanged above)
+      void saveCrmPushResults(campaignId, {
+        results: res.results,
+        totals: res.totals,
+        leadCount: payload.length,
+        skippedInvalid,
+        voicebotType: type,
+        status:
+          failed > 0 && success + duplicate === 0
+            ? 'failed'
+            : 'running',
+      }).catch((err) => console.warn('[crm] save push results failed', err))
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Upload failed'
       setLastPushError(msg)
@@ -376,6 +429,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ),
     )
 
+    // Always persist archive on OUR CRM DB
+    void archiveCrmLead(campaignId, leadId).catch((err) =>
+      console.warn('[crm] archive lead failed', err),
+    )
+
     // Only call Convin if lead was (or may have been) pushed
     if (!lead.phoneValid || lead.convinPushStatus === 'skipped_invalid') return
 
@@ -407,6 +465,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const setCampaignStatus = useCallback((campaignId: string, status: CampaignStatus) => {
     setCampaigns((prev) =>
       prev.map((c) => (c.id === campaignId ? { ...c, status } : c)),
+    )
+    void patchCrmCampaignStatus(campaignId, status).catch((err) =>
+      console.warn('[crm] status patch failed', err),
     )
   }, [])
 

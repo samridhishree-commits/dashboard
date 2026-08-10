@@ -56,6 +56,27 @@ const ENDPOINTS = [
     path: '/api/analytics/summary',
     desc: 'Overall + by-campaign analytics totals',
   },
+  {
+    method: 'GET',
+    path: '/api/crm/campaigns',
+    desc: 'List OUR CRM campaigns (camp-* ids) with leads — not Convin campaign_id',
+    query: '?institute_id=',
+  },
+  {
+    method: 'POST',
+    path: '/api/crm/campaigns',
+    desc: 'Upsert CRM campaign + optional leads[] into Postgres',
+  },
+  {
+    method: 'POST',
+    path: '/api/crm/campaigns/:id/leads',
+    desc: 'Append uploaded CSV leads under OUR campaign id',
+  },
+  {
+    method: 'POST',
+    path: '/api/crm/campaigns/:id/push-results',
+    desc: 'Save Convin push outcomes against OUR campaign (Convin /api/leads/push unchanged)',
+  },
 ]
 
 export function renderDocsHtml() {

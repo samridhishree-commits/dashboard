@@ -95,19 +95,59 @@ export async function ingestWebhook(body, meta = {}) {
     }
 
     await client.query('COMMIT')
-    return {
-      persisted: true,
-      client_status,
-      external_id: normalized.external_id,
-      campaign_id,
-      lead_id: normalized.lead_id,
-      normalized,
-    }
   } catch (err) {
     await client.query('ROLLBACK')
     throw err
   } finally {
     client.release()
+  }
+
+  // Sync outcomes into OUR crm_leads by external_id (best-effort; table may not exist pre-deploy)
+  if (normalized.external_id && hasDatabase()) {
+    try {
+      const pool2 = getPool()
+      await pool2.query(
+        `UPDATE crm_leads SET
+           client_status = $2,
+           current_state = COALESCE($3, current_state),
+           convin_lead_id = COALESCE($4, convin_lead_id),
+           raw = COALESCE(raw, '{}'::jsonb) || $5::jsonb,
+           updated_at = NOW()
+         WHERE external_id = $1`,
+        [
+          normalized.external_id,
+          client_status,
+          normalized.current_state ||
+            (client_status === 'verified'
+              ? 'Verified'
+              : client_status === 'uninterested'
+                ? 'Uninterested'
+                : 'In Progress'),
+          normalized.lead_id,
+          JSON.stringify({
+            lastWebhookAt: new Date().toISOString(),
+            interest_level: normalized.interest_level,
+            qualification_status: normalized.qualification_status,
+            goal_achieved: normalized.goal_achieved,
+            call_attempts: normalized.call_attempts,
+            recording_url: normalized.recording_url,
+            transcript: normalized.transcript,
+            call_status: normalized.call_status,
+          }),
+        ],
+      )
+    } catch (err) {
+      console.warn('[webhook] crm_leads sync skipped:', err instanceof Error ? err.message : err)
+    }
+  }
+
+  return {
+    persisted: true,
+    client_status,
+    external_id: normalized.external_id,
+    campaign_id,
+    lead_id: normalized.lead_id,
+    normalized,
   }
 }
 

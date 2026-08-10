@@ -75,6 +75,69 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_leads_campaign ON leads (campaign_id);
     CREATE INDEX IF NOT EXISTS idx_leads_status ON leads (client_status);
     CREATE INDEX IF NOT EXISTS idx_leads_updated ON leads (updated_at DESC);
+
+    -- Our CRM only (camp-* ids). Convin campaign UUID is NEVER stored as PK here.
+    CREATE TABLE IF NOT EXISTS crm_campaigns (
+      id TEXT PRIMARY KEY,
+      institute_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      course TEXT NOT NULL DEFAULT '',
+      channel TEXT,
+      voicebot_type TEXT,
+      status TEXT NOT NULL DEFAULT 'draft',
+      minutes_consumed DOUBLE PRECISION DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_crm_campaigns_institute
+      ON crm_campaigns (institute_id);
+
+    CREATE TABLE IF NOT EXISTS crm_leads (
+      id TEXT PRIMARY KEY,
+      campaign_id TEXT NOT NULL REFERENCES crm_campaigns(id) ON DELETE CASCADE,
+      external_id TEXT NOT NULL,
+      client_lead_id TEXT,
+      first_name TEXT DEFAULT '',
+      last_name TEXT DEFAULT '',
+      phone_number TEXT DEFAULT '',
+      phone_e164 TEXT,
+      phone_valid BOOLEAN NOT NULL DEFAULT TRUE,
+      phone_invalid_reason TEXT,
+      email TEXT DEFAULT '',
+      city TEXT DEFAULT '',
+      state TEXT DEFAULT '',
+      course TEXT DEFAULT '',
+      country TEXT DEFAULT 'India',
+      source TEXT DEFAULT 'CSV',
+      client_status TEXT NOT NULL DEFAULT 'in_progress',
+      current_state TEXT,
+      archived BOOLEAN NOT NULL DEFAULT FALSE,
+      convin_lead_id TEXT,
+      convin_push_status TEXT,
+      convin_push_message TEXT,
+      raw JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (campaign_id, external_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_crm_leads_campaign ON crm_leads (campaign_id);
+    CREATE INDEX IF NOT EXISTS idx_crm_leads_external ON crm_leads (external_id);
+
+    CREATE TABLE IF NOT EXISTS crm_push_runs (
+      id BIGSERIAL PRIMARY KEY,
+      campaign_id TEXT NOT NULL REFERENCES crm_campaigns(id) ON DELETE CASCADE,
+      lead_count INTEGER DEFAULT 0,
+      skipped_invalid INTEGER DEFAULT 0,
+      totals JSONB,
+      results JSONB,
+      payload JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_crm_push_runs_campaign
+      ON crm_push_runs (campaign_id, created_at DESC);
   `)
 
   console.log('[db] schema ready')
