@@ -22,6 +22,7 @@ import type {
 import { archiveLeadOnConvin, pushLeadsToConvin } from '../services/backend'
 import {
   archiveCrmLead,
+  deleteCrmLeads,
   listCrmCampaigns,
   patchCrmCampaignStatus,
   saveCrmCampaign,
@@ -68,6 +69,7 @@ interface AppState {
   setActiveCampaignId: (id: string | null) => void
   startVoicebotRun: (campaignId: string, type: VoicebotType) => Promise<void>
   archiveLead: (campaignId: string, leadId: string) => Promise<void>
+  deleteLeads: (campaignId: string, leadIds: string[]) => Promise<void>
   setCampaignStatus: (campaignId: string, status: CampaignStatus) => void
   lastPushError: string | null
   clearLastPushError: () => void
@@ -462,6 +464,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [campaigns])
 
+  const deleteLeads = useCallback(async (campaignId: string, leadIds: string[]) => {
+    const ids = [...new Set(leadIds.filter(Boolean))]
+    if (!ids.length) return
+
+    setCampaigns((prev) =>
+      prev.map((c) =>
+        c.id === campaignId
+          ? { ...c, leads: c.leads.filter((l) => !ids.includes(l.id)) }
+          : c,
+      ),
+    )
+
+    try {
+      await deleteCrmLeads(campaignId, ids)
+    } catch (err) {
+      console.error('[crm] delete leads failed', err)
+      setLastPushError(
+        err instanceof Error
+          ? `Delete failed: ${err.message}. Push the latest server code to Render, then retry.`
+          : 'Failed to delete leads from database',
+      )
+      // Reload CRM from API if available so UI matches DB
+      try {
+        const remote = await listCrmCampaigns()
+        if (remote.length) {
+          setCampaigns((prev) => {
+            const byId = new Map(remote.map((c) => [c.id, c]))
+            return prev.map((c) => byId.get(c.id) ?? c)
+          })
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [])
+
   const setCampaignStatus = useCallback((campaignId: string, status: CampaignStatus) => {
     setCampaigns((prev) =>
       prev.map((c) => (c.id === campaignId ? { ...c, status } : c)),
@@ -510,6 +548,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setActiveCampaignId,
       startVoicebotRun,
       archiveLead,
+      deleteLeads,
       setCampaignStatus,
       getCampaign,
       instituteCampaigns,
@@ -536,6 +575,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setActiveTab,
       startVoicebotRun,
       archiveLead,
+      deleteLeads,
       setCampaignStatus,
       getCampaign,
       instituteCampaigns,

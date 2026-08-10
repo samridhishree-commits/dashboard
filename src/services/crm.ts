@@ -75,6 +75,20 @@ export async function archiveCrmLead(campaignId: string, leadId: string): Promis
   })
 }
 
+export async function deleteCrmLeads(
+  campaignId: string,
+  leadIds: string[],
+): Promise<{ deleted: number }> {
+  const res = await apiFetch<{ deleted?: number }>(
+    `/api/crm/campaigns/${campaignId}/leads/delete`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ leadIds }),
+    },
+  )
+  return { deleted: res.deleted ?? leadIds.length }
+}
+
 export async function patchCrmCampaignStatus(
   campaignId: string,
   status: CampaignStatus,

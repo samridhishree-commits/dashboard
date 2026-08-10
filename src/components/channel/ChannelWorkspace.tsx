@@ -405,7 +405,7 @@ export function ChannelWorkspace({ channel }: { channel: Channel }) {
         ) : null}
 
         {!runningCampaignId && lastPushError ? (
-          <Modal title="Upload status" onClose={clearLastPushError}>
+          <Modal title="Notice" onClose={clearLastPushError}>
             <p style={{ marginTop: 0 }}>{lastPushError}</p>
             <div className="modal-actions">
               <button type="button" className="btn btn-primary" onClick={clearLastPushError}>

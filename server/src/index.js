@@ -10,6 +10,7 @@ import {
 } from './analytics.js'
 import {
   addCrmLeads,
+  deleteCrmLeads,
   getCrmCampaign,
   listCrmCampaigns,
   logCrmPushRun,
@@ -388,6 +389,24 @@ app.post('/api/crm/campaigns/:id/leads/:leadId/archive', async (req, res) => {
     res.status(500).json({
       status: 'error',
       message: err instanceof Error ? err.message : 'Archive failed',
+    })
+  }
+})
+
+app.post('/api/crm/campaigns/:id/leads/delete', async (req, res) => {
+  try {
+    const leadIds = Array.isArray(req.body?.leadIds) ? req.body.leadIds : []
+    if (!leadIds.length) {
+      res.status(400).json({ status: 'error', message: 'leadIds[] required' })
+      return
+    }
+    const result = await deleteCrmLeads(req.params.id, leadIds)
+    const saved = await getCrmCampaign(req.params.id)
+    res.json({ status: 'success', ...result, data: saved })
+  } catch (err) {
+    res.status(500).json({
+      status: 'error',
+      message: err instanceof Error ? err.message : 'Delete failed',
     })
   }
 })

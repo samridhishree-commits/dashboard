@@ -189,6 +189,18 @@ export async function setCrmLeadArchived(campaignId, leadId, archived = true) {
   )
 }
 
+/** Hard-delete CRM leads (e.g. invalid phones). Does not touch Convin `leads` table. */
+export async function deleteCrmLeads(campaignId, leadIds) {
+  const ids = Array.isArray(leadIds) ? leadIds.filter(Boolean) : []
+  if (!ids.length) return { deleted: 0 }
+  const pool = requireDb()
+  const { rowCount } = await pool.query(
+    `DELETE FROM crm_leads WHERE campaign_id = $1 AND id = ANY($2::text[])`,
+    [campaignId, ids],
+  )
+  return { deleted: rowCount || 0 }
+}
+
 export async function setCrmCampaignStatus(campaignId, status) {
   const pool = requireDb()
   await pool.query(

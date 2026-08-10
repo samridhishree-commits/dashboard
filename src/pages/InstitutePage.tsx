@@ -10,6 +10,7 @@ import {
   Play,
   Plus,
   Search,
+  Trash2,
   Upload,
 } from 'lucide-react'
 import { AppShell, PageCrumb } from '../components/layout/AppShell'
@@ -59,6 +60,7 @@ export function InstitutePage() {
     lastPushError,
     clearLastPushError,
     addLeadsToCampaign,
+    deleteLeads,
   } = useApp()
 
   const institute = institutes.find((i) => i.id === instituteId)
@@ -83,11 +85,14 @@ export function InstitutePage() {
     () => new Set(),
   )
   const [historyLead, setHistoryLead] = useState<Lead | null>(null)
+  const [selectedLeadIds, setSelectedLeadIds] = useState<Set<string>>(() => new Set())
+  const [deletingLeads, setDeletingLeads] = useState(false)
 
   const closeCampaign = () => {
     setActiveCampaignId(null)
     setLeadSearch('')
     setHistoryLead(null)
+    setSelectedLeadIds(new Set())
   }
 
   const toggleKpi = (key: 'verified' | 'multi' | 'total' | 'unverified') => {
@@ -159,6 +164,40 @@ export function InstitutePage() {
   }, [campaigns, filters])
 
   const pagedLeads = visibleLeads.slice(0, pageSize)
+  const allVisibleSelected =
+    visibleLeads.length > 0 && visibleLeads.every((l) => selectedLeadIds.has(l.id))
+  const selectedCount = selectedLeadIds.size
+
+  const toggleLeadSelected = (leadId: string) => {
+    setSelectedLeadIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(leadId)) next.delete(leadId)
+      else next.add(leadId)
+      return next
+    })
+  }
+
+  const toggleSelectAllVisible = () => {
+    setSelectedLeadIds((prev) => {
+      if (visibleLeads.every((l) => prev.has(l.id))) return new Set()
+      return new Set(visibleLeads.map((l) => l.id))
+    })
+  }
+
+  const handleDeleteSelected = async () => {
+    if (!activeCampaign || !selectedCount || deletingLeads) return
+    const ok = window.confirm(
+      `Delete ${selectedCount} lead${selectedCount === 1 ? '' : 's'} from this campaign and the database?`,
+    )
+    if (!ok) return
+    setDeletingLeads(true)
+    try {
+      await deleteLeads(activeCampaign.id, [...selectedLeadIds])
+      setSelectedLeadIds(new Set())
+    } finally {
+      setDeletingLeads(false)
+    }
+  }
 
   const kpis = useMemo(() => {
     const leads = campaigns.flatMap((c) => c.leads.filter((l) => !l.archived))
@@ -546,8 +585,20 @@ export function InstitutePage() {
             <span>
               {campaignLeadStats.total} leads · {campaignLeadStats.convinReady} Convin-ready ·{' '}
               {campaignLeadStats.invalid} invalid
+              {selectedCount ? ` · ${selectedCount} selected` : ''}
             </span>
             <div className="stack-h">
+              {selectedCount ? (
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm lead-delete-btn"
+                  disabled={deletingLeads}
+                  onClick={() => void handleDeleteSelected()}
+                  title="Remove selected leads from CRM database"
+                >
+                  <Trash2 size={13} /> {deletingLeads ? 'Deleting…' : 'Delete selected'}
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="btn btn-ghost btn-sm"
@@ -598,6 +649,15 @@ export function InstitutePage() {
             <table className="data-table light">
               <thead>
                 <tr>
+                  <th className="lead-check-col">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all leads"
+                      checked={allVisibleSelected}
+                      onChange={toggleSelectAllVisible}
+                      disabled={!visibleLeads.length}
+                    />
+                  </th>
                   <th>Name</th>
                   <th>External ID (CRM)</th>
                   <th>Client Lead ID</th>
@@ -612,10 +672,24 @@ export function InstitutePage() {
                 {pagedLeads.map((l) => (
                   <tr
                     key={l.id}
-                    className={`lead-row-click ${l.phoneValid ? '' : 'lead-row-invalid'}`}
+                    className={`lead-row-click ${l.phoneValid ? '' : 'lead-row-invalid'} ${
+                      selectedLeadIds.has(l.id) ? 'lead-row-selected' : ''
+                    }`}
                     onClick={() => setHistoryLead(l)}
                     title="View lead history"
                   >
+                    <td
+                      className="lead-check-col"
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${l.first_name} ${l.last_name}`}
+                        checked={selectedLeadIds.has(l.id)}
+                        onChange={() => toggleLeadSelected(l.id)}
+                      />
+                    </td>
                     <td>
                       {l.first_name} {l.last_name}
                     </td>
@@ -623,7 +697,7 @@ export function InstitutePage() {
                       <code className="ext-id-code">{l.external_id}</code>
                     </td>
                     <td className="muted">{l.clientLeadId || '—'}</td>
-                    <td>{l.phone_number}</td>
+                    <td>{l.phone_number || '—'}</td>
                     <td>
                       {l.phoneValid ? (
                         <span className="status-pill status-completed">Valid</span>
@@ -644,7 +718,7 @@ export function InstitutePage() {
                 ))}
                 {!pagedLeads.length ? (
                   <tr>
-                    <td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
+                    <td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
                       No leads match filters
                     </td>
                   </tr>
@@ -940,7 +1014,7 @@ export function InstitutePage() {
       ) : null}
 
       {!runningCampaignId && lastPushError ? (
-        <Modal title="Upload status" onClose={clearLastPushError}>
+        <Modal title="Notice" onClose={clearLastPushError}>
           <p style={{ marginTop: 0 }}>{lastPushError}</p>
           <p className="muted" style={{ fontSize: 13 }}>
             Leads that uploaded stay In Progress until webhook / fetch updates status.

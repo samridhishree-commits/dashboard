@@ -77,6 +77,12 @@ const ENDPOINTS = [
     path: '/api/crm/campaigns/:id/push-results',
     desc: 'Save Convin push outcomes against OUR campaign (Convin /api/leads/push unchanged)',
   },
+  {
+    method: 'POST',
+    path: '/api/crm/campaigns/:id/leads/delete',
+    desc: 'Hard-delete CRM leads by id[] (removes from crm_leads)',
+    body: '{ "leadIds": ["lead-…"] }',
+  },
 ]
 
 export function renderDocsHtml() {

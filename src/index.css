@@ -1202,6 +1202,32 @@ a {
   background: #faf0f0;
 }
 
+.lead-row-selected td {
+  background: #f0f5ff;
+}
+
+.lead-check-col {
+  width: 36px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.lead-check-col input[type='checkbox'] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: #2563eb;
+}
+
+.lead-delete-btn {
+  color: #b42318;
+  border-color: #f0c9c5;
+}
+
+.lead-delete-btn:hover:not(:disabled) {
+  background: #fdf4f3;
+}
+
 .upload-invalid-box {
   margin-top: 12px;
   padding: 10px 12px;
