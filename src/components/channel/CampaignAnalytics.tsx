@@ -23,6 +23,7 @@ import {
   TrendingDown,
 } from 'lucide-react'
 import type { Campaign } from '../../types'
+import { ChartReady } from '../charts/ChartReady'
 import { CHART, noPointEnds } from '../charts/chartTheme'
 
 function pct(part: number, total: number) {
@@ -186,7 +187,8 @@ export function CampaignAnalytics({ campaign }: { campaign: Campaign }) {
               </span>
             </div>
             <div className="fx-chart-tall">
-              <ResponsiveContainer width="100%" height="100%">
+              <ChartReady height={260} remountKey={campaign.id}>
+              <ResponsiveContainer width="100%" height={260}>
                 <AreaChart data={trend} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="fxVer" x1="0" y1="0" x2="0" y2="1">
@@ -232,6 +234,7 @@ export function CampaignAnalytics({ campaign }: { campaign: Campaign }) {
                   />
                 </AreaChart>
               </ResponsiveContainer>
+              </ChartReady>
             </div>
           </section>
 
@@ -266,7 +269,7 @@ export function CampaignAnalytics({ campaign }: { campaign: Campaign }) {
                 <div className="fx-stat-chip">
                   <Activity size={14} />
                   <div>
-                    <em>In progress</em>
+                    <em>In Progress</em>
                     <strong>{m.inProgress}</strong>
                   </div>
                 </div>
@@ -288,7 +291,8 @@ export function CampaignAnalytics({ campaign }: { campaign: Campaign }) {
                 </div>
               </div>
               <div className="fx-donut-wrap">
-                <ResponsiveContainer width="100%" height="100%">
+                <ChartReady height={210} remountKey={`${campaign.id}-mix`}>
+                <ResponsiveContainer width="100%" height={210}>
                   <PieChart>
                     <Pie
                       data={mixData.length ? mixData : [{ name: 'None', value: 1, color: '#e2e8f0' }]}
@@ -334,6 +338,7 @@ export function CampaignAnalytics({ campaign }: { campaign: Campaign }) {
                     />
                   </PieChart>
                 </ResponsiveContainer>
+                </ChartReady>
               </div>
             </section>
           </div>
@@ -376,14 +381,6 @@ export function CampaignAnalytics({ campaign }: { campaign: Campaign }) {
                   <b>{row.value}</b>
                 </li>
               ))}
-              <li>
-                <span className="fx-list-dot" style={{ background: '#8b5cf6' }} />
-                <div>
-                  <strong>In progress</strong>
-                  <em>{pct(m.inProgress, m.total)}% of total</em>
-                </div>
-                <b>{m.inProgress}</b>
-              </li>
             </ul>
           </section>
 

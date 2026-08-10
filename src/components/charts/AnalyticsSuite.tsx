@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import {
   Area,
   AreaChart,
@@ -38,6 +39,16 @@ function FilterTools() {
 }
 
 export function AnalyticsSuite() {
+  // Recharts often measures 0-width on client nav; refresh/resizes fixes it — do that automatically
+  useEffect(() => {
+    const t1 = window.setTimeout(() => window.dispatchEvent(new Event('resize')), 50)
+    const t2 = window.setTimeout(() => window.dispatchEvent(new Event('resize')), 200)
+    return () => {
+      window.clearTimeout(t1)
+      window.clearTimeout(t2)
+    }
+  }, [])
+
   return (
     <div className="analytics-suite">
       <Panel
@@ -72,7 +83,7 @@ export function AnalyticsSuite() {
 
       <Panel title="Lead Score" tip="Distribution of leads by L1 quality score" tools={<FilterTools />}>
         <div className="chart-box chart-box-score">
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height={220}>
             <BarChart
               layout="vertical"
               data={leadScoreData}
@@ -134,11 +145,11 @@ export function AnalyticsSuite() {
             <i style={{ background: CHART.colors.orange }} /> Unverified
           </span>
           <span>
-            <i style={{ background: CHART.colors.blue }} /> In progress
+            <i style={{ background: CHART.colors.blue }} /> In Progress
           </span>
         </div>
         <div className="chart-box">
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height={260}>
             <AreaChart data={verifiedTrendData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="asVer" x1="0" y1="0" x2="0" y2="1">
@@ -181,7 +192,7 @@ export function AnalyticsSuite() {
               <Area
                 type={CHART.curve}
                 dataKey="inProgress"
-                name="In progress"
+                name="In Progress"
                 stroke={CHART.colors.blue}
                 fill="url(#asProg)"
                 strokeWidth={CHART.strokeWidth}
@@ -207,7 +218,7 @@ export function AnalyticsSuite() {
           </span>
         </div>
         <div className="chart-box">
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height={260}>
             <AreaChart data={callActivityData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="asAtt" x1="0" y1="0" x2="0" y2="1">
@@ -258,7 +269,7 @@ export function AnalyticsSuite() {
             ] as const
           ).map(([label, data]) => (
             <div className="donut-cell fx-mini-donut" key={label}>
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={260}>
                 <PieChart>
                   <Pie
                     data={data}

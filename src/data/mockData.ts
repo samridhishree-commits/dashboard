@@ -426,6 +426,18 @@ export const seedCampaigns: Campaign[] = [
       ),
     ),
   },
+  {
+    id: 'camp-btech-empty',
+    instituteId: 'jain-university',
+    name: 'B.Tech Empty Campaign',
+    course: 'B.Tech',
+    createdAt: '2026-08-10',
+    status: 'draft',
+    channel: 'voicebot',
+    voicebotType: 'btech',
+    minutesConsumed: 0,
+    leads: [],
+  },
 ]
 
 export const leadOriginRows = [

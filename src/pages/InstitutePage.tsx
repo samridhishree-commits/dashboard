@@ -58,6 +58,7 @@ export function InstitutePage() {
     runProgress,
     lastPushError,
     clearLastPushError,
+    addLeadsToCampaign,
   } = useApp()
 
   const institute = institutes.find((i) => i.id === instituteId)
@@ -71,6 +72,7 @@ export function InstitutePage() {
   const [fileName, setFileName] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const addLeadsFileRef = useRef<HTMLInputElement>(null)
 
   const [runOpen, setRunOpen] = useState(false)
   const [voiceTypeOpen, setVoiceTypeOpen] = useState(false)
@@ -455,7 +457,7 @@ export function InstitutePage() {
         </div>
       </section>
 
-      <div className="section-gap">
+      <div className="section-gap" id="analytics">
         <AnalyticsSuite />
       </div>
 
@@ -479,11 +481,21 @@ export function InstitutePage() {
               <button
                 type="button"
                 className="btn btn-primary"
-                  disabled={
-                    !activeCampaign?.leads.length ||
-                    activeCampaign.status === 'running' ||
-                    filterConvinReadyLeads(activeCampaign.leads).length === 0
-                  }
+                disabled={
+                  !!runningCampaignId ||
+                  filterConvinReadyLeads(activeCampaign.leads).filter(
+                    (l) =>
+                      l.convinPushStatus !== 'success' && l.convinPushStatus !== 'duplicate',
+                  ).length === 0
+                }
+                title={
+                  filterConvinReadyLeads(activeCampaign.leads).filter(
+                    (l) =>
+                      l.convinPushStatus !== 'success' && l.convinPushStatus !== 'duplicate',
+                  ).length === 0
+                    ? 'Upload valid leads first (or all valid leads already pushed)'
+                    : 'Push valid leads to Convin'
+                }
                 onClick={() => setRunOpen(true)}
               >
                 <Play size={14} /> Run Campaign
@@ -536,6 +548,42 @@ export function InstitutePage() {
               {campaignLeadStats.invalid} invalid
             </span>
             <div className="stack-h">
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={downloadSampleCsv}
+                title="Download sample CSV template"
+              >
+                <Download size={13} /> Sample CSV
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                disabled={!!runningCampaignId}
+                onClick={() => addLeadsFileRef.current?.click()}
+              >
+                <Upload size={13} /> Upload more leads
+              </button>
+              <input
+                ref={addLeadsFileRef}
+                type="file"
+                accept=".csv,text/csv"
+                hidden
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (!f || !activeCampaign) return
+                  const reader = new FileReader()
+                  reader.onload = () => {
+                    const leads = parseLeadsCsv(
+                      String(reader.result || ''),
+                      institute?.name || 'CollegeDunia',
+                    ).map((l) => ({ ...l, course: activeCampaign.course }))
+                    addLeadsToCampaign(activeCampaign.id, leads)
+                  }
+                  reader.readAsText(f)
+                  e.target.value = ''
+                }}
+              />
               <div className="inline-search" style={{ minWidth: 200 }}>
                 <Search size={14} />
                 <input

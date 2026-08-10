@@ -1,6 +1,6 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Download, Filter, Plus, Search, Upload } from 'lucide-react'
+import { Download, Filter, Play, Plus, Search, Upload } from 'lucide-react'
 import { AppShell, PageCrumb } from '../layout/AppShell'
 import { CampaignCard } from './CampaignCard'
 import { CampaignAnalytics } from './CampaignAnalytics'
@@ -8,12 +8,19 @@ import { LeadLevelView } from './LeadLevelView'
 import { KpiCard } from '../ui/KpiCard'
 import { Modal } from '../ui/Modal'
 import { useApp } from '../../context/AppContext'
-import { CSV_SAMPLE, channelLabels } from '../../data/mockData'
-import type { Channel, Lead } from '../../types'
+import { CSV_SAMPLE, channelLabels, voicebotTypeLabels } from '../../data/mockData'
+import type { Channel, Lead, VoicebotType } from '../../types'
 import { parseLeadsCsv } from '../../utils/parseLeadsCsv'
 import { countByClientStatus } from '../../utils/lifecycle'
+import { filterConvinReadyLeads } from '../../utils/leads'
 
 type DetailTab = 'analytics' | 'leads'
+
+function unpushedReadyCount(leads: Lead[]) {
+  return filterConvinReadyLeads(leads).filter(
+    (l) => l.convinPushStatus !== 'success' && l.convinPushStatus !== 'duplicate',
+  ).length
+}
 
 /**
  * Channel-scoped workspace:
@@ -28,10 +35,16 @@ export function ChannelWorkspace({ channel }: { channel: Channel }) {
     institutes,
     channelCampaigns,
     createCampaign,
+    addLeadsToCampaign,
     getCampaign,
     archiveLead,
     setCampaignStatus,
     setActiveCampaignId,
+    startVoicebotRun,
+    runningCampaignId,
+    runProgress,
+    lastPushError,
+    clearLastPushError,
   } = useApp()
 
   const institute = institutes.find((i) => i.id === instituteId)
@@ -41,12 +54,24 @@ export function ChannelWorkspace({ channel }: { channel: Channel }) {
   const [search, setSearch] = useState('')
   const [tab, setTab] = useState<DetailTab>('analytics')
   const [createOpen, setCreateOpen] = useState(false)
+  const [uploadOpen, setUploadOpen] = useState(false)
+  const [voiceTypeOpen, setVoiceTypeOpen] = useState(false)
+  const [selectedVoiceType, setSelectedVoiceType] = useState<VoicebotType>('btech')
   const [campName, setCampName] = useState('')
   const [campCourse, setCampCourse] = useState('Online MBA')
   const [parsedLeads, setParsedLeads] = useState<Lead[]>([])
   const [fileName, setFileName] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const uploadFileRef = useRef<HTMLInputElement>(null)
+
+  // Keep detail view in sync when URL campaignId changes (avoids blank / stale tab)
+  useEffect(() => {
+    if (campaignId) {
+      setActiveCampaignId(campaignId)
+      setTab('analytics')
+    }
+  }, [campaignId, setActiveCampaignId])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -88,7 +113,38 @@ export function ChannelWorkspace({ channel }: { channel: Channel }) {
   }
 
   /* —— Campaign detail (analytics default) —— */
+  if (campaignId && !selected) {
+    return (
+      <AppShell showChannels activeChannel={channel}>
+        <div className="page-header">
+          <PageCrumb
+            items={[
+              { label: 'Dashboard', to: `/institute/${instituteId}` },
+              { label: channelLabels[channel], to: base },
+              { label: 'Campaign' },
+            ]}
+          />
+          <h1 className="page-title">Campaign not found</h1>
+          <p className="muted">
+            This campaign is not in the current session (e.g. after a full reload of a newly created
+            campaign). Open it again from the {channelLabels[channel]} list.
+          </p>
+          <button type="button" className="btn btn-primary" onClick={() => navigate(base)}>
+            Back to {channelLabels[channel]}
+          </button>
+        </div>
+      </AppShell>
+    )
+  }
+
   if (selected && selected.instituteId === instituteId) {
+    const uploading = runningCampaignId === selected.id
+    const pendingPush = unpushedReadyCount(selected.leads)
+    // Upload anytime except while a push is in flight (draft / ready / idle / even after prior run)
+    const canUploadLeads = !uploading
+    const canRun =
+      channel === 'voicebot' && pendingPush > 0 && !uploading && !runningCampaignId
+
     return (
       <AppShell showChannels activeChannel={channel}>
         <div className="page-header">
@@ -107,7 +163,53 @@ export function ChannelWorkspace({ channel }: { channel: Channel }) {
               <p className="page-sub" style={{ marginBottom: 0 }}>
                 {channelLabels[channel]} · {selected.course} ·{' '}
                 <span className={`status-pill status-${selected.status}`}>{selected.status}</span>
+                {' · '}
+                {selected.leads.length} leads · {pendingPush} ready to push
               </p>
+            </div>
+            <div className="stack-h">
+              {canUploadLeads ? (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={downloadSample}
+                    title="Download sample CSV template"
+                  >
+                    <Download size={14} /> Sample CSV
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    disabled={uploading}
+                    onClick={() => {
+                      setParsedLeads([])
+                      setFileName('')
+                      setUploadOpen(true)
+                    }}
+                  >
+                    <Upload size={14} /> Upload leads
+                  </button>
+                </>
+              ) : null}
+              {channel === 'voicebot' ? (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={!canRun}
+                  title={
+                    pendingPush === 0
+                      ? 'Upload valid leads first (or all valid leads already pushed)'
+                      : 'Push valid leads to Convin'
+                  }
+                  onClick={() => {
+                    setSelectedVoiceType(selected.voicebotType || 'btech')
+                    setVoiceTypeOpen(true)
+                  }}
+                >
+                  <Play size={14} /> Run Campaign
+                </button>
+              ) : null}
             </div>
           </div>
         </div>
@@ -146,6 +248,172 @@ export function ChannelWorkspace({ channel }: { channel: Channel }) {
             onPauseCampaign={() => setCampaignStatus(selected.id, 'paused')}
           />
         )}
+
+        {uploadOpen ? (
+          <Modal
+            title="Upload leads to campaign"
+            onClose={() => {
+              setUploadOpen(false)
+              setParsedLeads([])
+              setFileName('')
+            }}
+            footer={
+              <>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => {
+                    setUploadOpen(false)
+                    setParsedLeads([])
+                    setFileName('')
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-success"
+                  disabled={!parsedLeads.length}
+                  onClick={() => {
+                    addLeadsToCampaign(
+                      selected.id,
+                      parsedLeads.map((l) => ({ ...l, course: selected.course })),
+                    )
+                    setUploadOpen(false)
+                    setParsedLeads([])
+                    setFileName('')
+                    setTab('leads')
+                  }}
+                >
+                  Add {parsedLeads.length || ''} leads
+                </button>
+              </>
+            }
+          >
+            <p className="muted" style={{ marginTop: 0 }}>
+              Adds leads into <strong>{selected.name}</strong> ({selected.status}). Invalid phones
+              stay in CRM and are never sent to Convin.
+            </p>
+            <div className="create-upload-block">
+              <div className="create-upload-head">
+                <span>Lead CSV</span>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={downloadSample}>
+                  <Download size={13} /> Sample CSV
+                </button>
+              </div>
+              <div
+                className={`dropzone ${dragOver ? 'drag' : ''}`}
+                onDragOver={(e) => {
+                  e.preventDefault()
+                  setDragOver(true)
+                }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  setDragOver(false)
+                  const f = e.dataTransfer.files?.[0]
+                  if (f) handleFile(f)
+                }}
+                onClick={() => uploadFileRef.current?.click()}
+              >
+                <Upload size={22} />
+                <strong>{fileName || 'Drop CSV or click to browse'}</strong>
+                <span className="muted">Stored in this campaign only</span>
+                <input
+                  ref={uploadFileRef}
+                  type="file"
+                  accept=".csv,text/csv"
+                  hidden
+                  onChange={(e) => {
+                    const f = e.target.files?.[0]
+                    if (f) handleFile(f)
+                  }}
+                />
+              </div>
+              {parsedLeads.length ? (
+                <p className="muted" style={{ marginBottom: 0 }}>
+                  <strong className="upload-ready">
+                    {parsedLeads.length} ready · {parsedLeads.filter((l) => l.phoneValid).length}{' '}
+                    valid · {parsedLeads.filter((l) => !l.phoneValid).length} invalid
+                  </strong>
+                </p>
+              ) : null}
+            </div>
+          </Modal>
+        ) : null}
+
+        {voiceTypeOpen && channel === 'voicebot' ? (
+          <Modal title="Run Campaign · Voicebot type" onClose={() => setVoiceTypeOpen(false)}>
+            <p className="muted" style={{ marginTop: 0 }}>
+              Pushes {pendingPush} valid lead(s) to Convin (already-running campaign). Invalid numbers
+              are skipped.
+            </p>
+            <div className="type-grid">
+              {(
+                [
+                  ['btech', 'B.Tech'],
+                  ['mbbs', 'MBBS'],
+                  ['mba', 'MBA'],
+                  ['online', 'Online Courses'],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={`type-card ${selectedVoiceType === id ? 'selected' : ''}`}
+                  onClick={() => setSelectedVoiceType(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="modal-actions" style={{ marginTop: 16 }}>
+              <button type="button" className="btn btn-ghost" onClick={() => setVoiceTypeOpen(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => {
+                  setVoiceTypeOpen(false)
+                  void startVoicebotRun(selected.id, selectedVoiceType)
+                }}
+              >
+                <Play size={14} /> Push to Convin
+              </button>
+            </div>
+          </Modal>
+        ) : null}
+
+        {runningCampaignId === selected.id ? (
+          <Modal title="Uploading leads" onClose={() => undefined}>
+            <p style={{ marginTop: 0 }}>
+              Uploading valid leads to Convin
+              {selected.voicebotType
+                ? ` · ${voicebotTypeLabels[selected.voicebotType]}`
+                : ''}
+              .
+            </p>
+            <div className="stack-h" style={{ justifyContent: 'space-between', marginBottom: 6 }}>
+              <span className="muted">Progress</span>
+              <strong>{runProgress}%</strong>
+            </div>
+            <div className="progress-track">
+              <div className="progress-fill" style={{ width: `${runProgress}%` }} />
+            </div>
+          </Modal>
+        ) : null}
+
+        {!runningCampaignId && lastPushError ? (
+          <Modal title="Upload status" onClose={clearLastPushError}>
+            <p style={{ marginTop: 0 }}>{lastPushError}</p>
+            <div className="modal-actions">
+              <button type="button" className="btn btn-primary" onClick={clearLastPushError}>
+                OK
+              </button>
+            </div>
+          </Modal>
+        ) : null}
       </AppShell>
     )
   }
@@ -295,7 +563,7 @@ export function ChannelWorkspace({ channel }: { channel: Channel }) {
               <button
                 type="button"
                 className="btn btn-success"
-                disabled={!campName.trim() || !parsedLeads.length}
+                disabled={!campName.trim()}
                 onClick={() => {
                   const camp = createCampaign(
                     instituteId,
@@ -312,7 +580,7 @@ export function ChannelWorkspace({ channel }: { channel: Channel }) {
                   navigate(`${base}/${camp.id}`)
                 }}
               >
-                Create & Open
+                {parsedLeads.length ? 'Create & Open' : 'Create empty draft'}
               </button>
             </>
           }

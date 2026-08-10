@@ -49,6 +49,7 @@ interface AppState {
     leads: Lead[],
     channel?: Channel,
   ) => Campaign
+  addLeadsToCampaign: (campaignId: string, leads: Lead[]) => void
   channelCampaigns: (instituteId: string, channel: Channel) => Campaign[]
   instituteCampaigns: (instituteId: string) => Campaign[]
   getCampaign: (id: string) => Campaign | undefined
@@ -117,7 +118,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         name,
         course,
         createdAt: new Date().toISOString().slice(0, 10),
-        status: leads.length ? (channel ? 'running' : 'ready') : 'draft',
+        // Stay draft/ready until user clicks Run Campaign (push to Convin)
+        status: leads.length ? 'ready' : 'draft',
         channel,
         minutesConsumed: channel === 'voicebot' ? 0 : undefined,
         leads,
@@ -128,6 +130,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     },
     [],
   )
+
+  const addLeadsToCampaign = useCallback((campaignId: string, leads: Lead[]) => {
+    if (!leads.length) return
+    setCampaigns((prev) =>
+      prev.map((c) => {
+        if (c.id !== campaignId) return c
+        const nextLeads = [...c.leads, ...leads]
+        const nextStatus: CampaignStatus =
+          c.status === 'draft' || c.status === 'ready'
+            ? nextLeads.length
+              ? 'ready'
+              : 'draft'
+            : c.status
+        return { ...c, leads: nextLeads, status: nextStatus }
+      }),
+    )
+  }, [])
 
   const openCampaignTab = useCallback((campaign: Campaign) => {
     setActiveCampaignId(campaign.id)
@@ -168,7 +187,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const campaign = campaigns.find((c) => c.id === campaignId)
     if (!campaign) return
 
-    const ready = filterConvinReadyLeads(campaign.leads)
+    const ready = filterConvinReadyLeads(campaign.leads).filter(
+      (l) => l.convinPushStatus !== 'success' && l.convinPushStatus !== 'duplicate',
+    )
     const payload = ready
       .map((l) => toConvinPayload(l))
       .filter((p): p is NonNullable<typeof p> => p !== null)
@@ -197,12 +218,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setRunProgress(8)
 
     if (!payload.length) {
+      const already =
+        filterConvinReadyLeads(campaign.leads).filter(
+          (l) => l.convinPushStatus === 'success' || l.convinPushStatus === 'duplicate',
+        ).length > 0
       setCampaigns((prev) =>
         prev.map((c) =>
           c.id === campaignId
             ? {
                 ...c,
-                status: 'ready' as CampaignStatus,
+                status: (already ? 'running' : c.leads.length ? 'ready' : 'draft') as CampaignStatus,
                 leads: c.leads.map((l) =>
                   !l.phoneValid
                     ? {
@@ -218,7 +243,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
             : c,
         ),
       )
-      setLastPushError('No valid leads to upload to Convin.')
+      setLastPushError(
+        already
+          ? 'All valid leads were already uploaded to Convin. Add new leads to push again.'
+          : 'No valid leads to upload to Convin.',
+      )
       setRunProgress(100)
       window.setTimeout(() => {
         setRunningCampaignId(null)
@@ -413,6 +442,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       resetFilters,
       addInstitute,
       createCampaign,
+      addLeadsToCampaign,
       openCampaignTab,
       closeTab,
       setActiveTab,
@@ -439,6 +469,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       resetFilters,
       addInstitute,
       createCampaign,
+      addLeadsToCampaign,
       openCampaignTab,
       closeTab,
       setActiveTab,
