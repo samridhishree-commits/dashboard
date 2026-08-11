@@ -5,13 +5,13 @@ export type ClientLeadStatus = 'verified' | 'uninterested' | 'in_progress'
 
 export const clientStatusLabels: Record<ClientLeadStatus, string> = {
   verified: 'Verified',
-  uninterested: 'Uninterested',
+  uninterested: 'Not interested',
   in_progress: 'In Progress',
 }
 
 export const clientStatusHints: Record<ClientLeadStatus, string> = {
   verified: 'Hot · qualified via voicebot',
-  uninterested: 'Warm / Cold / Not interested',
+  uninterested: 'Warm / Cold / declined interest',
   in_progress: 'Call ongoing / Not attempted',
 }
 

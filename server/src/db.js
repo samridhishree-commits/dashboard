@@ -66,11 +66,14 @@ export async function initDb() {
       last_connected_channel TEXT,
       last_event TEXT,
       last_event_at TIMESTAMPTZ,
+      duration_sec INTEGER,
       raw JSONB,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY (external_id, campaign_id)
     );
+
+    ALTER TABLE leads ADD COLUMN IF NOT EXISTS duration_sec INTEGER;
 
     CREATE INDEX IF NOT EXISTS idx_leads_campaign ON leads (campaign_id);
     CREATE INDEX IF NOT EXISTS idx_leads_status ON leads (client_status);

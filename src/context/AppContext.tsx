@@ -95,9 +95,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const clearLastPushError = useCallback(() => setLastPushError(null), [])
 
   // Restore OUR CRM campaigns/leads from Postgres (camp-* ids). Never uses Convin campaign_id.
+  // Re-poll so webhook outcomes (status, recordings, minutes) appear without a full refresh.
   useEffect(() => {
     let cancelled = false
-    ;(async () => {
+    const load = async () => {
       try {
         const fromDb = await listCrmCampaigns()
         if (cancelled || !fromDb.length) return
@@ -109,9 +110,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } catch (err) {
         console.warn('[crm] load campaigns failed', err)
       }
-    })()
+    }
+    void load()
+    const timer = window.setInterval(() => void load(), 20000)
     return () => {
       cancelled = true
+      window.clearInterval(timer)
     }
   }, [])
 

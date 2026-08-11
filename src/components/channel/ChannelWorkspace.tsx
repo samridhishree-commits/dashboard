@@ -495,7 +495,7 @@ export function ChannelWorkspace({ channel }: { channel: Channel }) {
             tip="Hot · qualified via voicebot"
           />
           <KpiCard
-            label="Uninterested"
+            label="Not interested"
             value={poolStats.uninterested}
             icon="badge"
             color="orange"

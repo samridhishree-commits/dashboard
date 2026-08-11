@@ -171,7 +171,7 @@ function enrichLifecycle(l: Lead, status: ClientLeadStatus, i: number): Lead {
         : status === 'verified'
           ? 'Verified'
           : status === 'uninterested'
-            ? 'Uninterested'
+            ? 'Not interested'
             : connected
               ? 'Call ongoing'
               : 'Not attempted',

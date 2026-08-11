@@ -64,7 +64,7 @@ export function currentStateLabel(lead: Lead): string {
   if (lead.currentState) return lead.currentState
   if (lead.archived) return 'Archived'
   if (lead.clientStatus === 'verified') return 'Verified'
-  if (lead.clientStatus === 'uninterested') return 'Uninterested'
+  if (lead.clientStatus === 'uninterested') return 'Not interested'
   if (lead.callAttempts > 0) return 'Call ongoing'
   return 'Not attempted'
 }

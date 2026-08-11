@@ -559,7 +559,7 @@ export function InstitutePage() {
               tip="Hot · verified via voicebot"
             />
             <KpiCard
-              label="Uninterested"
+              label="Not interested"
               value={campaignLeadStats.uninterested}
               icon="multi"
               color="orange"

@@ -74,7 +74,7 @@ export interface Lead {
   verifiedChannels: VerifyChannel[]
   verificationHistory: VerificationEvent[]
   channelHistory: ChannelTouchEvent[]
-  /** CRM status: Verified | Uninterested | In Progress */
+  /** CRM status: Verified | Not interested | In Progress */
   clientStatus: ClientLeadStatus
   callAttempts: number
   callConnected: number

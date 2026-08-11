@@ -28,7 +28,7 @@ export function CampaignCard({
         </h4>
         <p className="muted" style={{ margin: 0 }}>
           {campaign.course} · {stats.total} leads · {stats.verified} verified ·{' '}
-          {stats.uninterested} uninterested · {stats.inProgress} in progress
+          {stats.uninterested} not interested · {stats.inProgress} in progress
           {stats.invalid ? ` · ${stats.invalid} invalid` : ''} · {minutes} min ·{' '}
           {formatStarted(campaign.createdAt)}
         </p>

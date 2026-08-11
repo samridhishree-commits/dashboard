@@ -283,7 +283,7 @@ export function AllLeadsPage() {
                       {l.clientStatus === 'verified'
                         ? 'Verified'
                         : l.clientStatus === 'uninterested'
-                          ? 'Uninterested'
+                          ? 'Not interested'
                           : 'In Progress'}
                     </span>
                   </td>

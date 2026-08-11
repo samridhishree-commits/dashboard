@@ -94,6 +94,8 @@ export function normalizeWebhookBody(body = {}) {
     last_connected_channel: body.last_connected_channel || null,
     event: body.event || null,
     timestamp: body.timestamp || null,
+    call_id: body.call_id || last.last_call_id || null,
+    agent_name: body.agent_name || body.agent || null,
     callback_requested: entities.callback_requested ?? null,
     raw: body,
   }

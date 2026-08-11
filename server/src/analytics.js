@@ -42,12 +42,14 @@ export async function ingestWebhook(body, meta = {}) {
           external_id, campaign_id, lead_id, name, phone, email,
           client_status, qualification_status, interest_level, goal_achieved,
           current_state, call_attempts, call_status, recording_url, transcript,
-          last_connected_at, last_connected_channel, last_event, last_event_at, raw, updated_at
+          last_connected_at, last_connected_channel, last_event, last_event_at,
+          duration_sec, raw, updated_at
         ) VALUES (
           $1,$2,$3,$4,$5,$6,
           $7,$8,$9,$10,
           $11,$12,$13,$14,$15,
-          $16,$17,$18,$19,$20, NOW()
+          $16,$17,$18,$19,
+          $20,$21, NOW()
         )
         ON CONFLICT (external_id, campaign_id) DO UPDATE SET
           lead_id = COALESCE(EXCLUDED.lead_id, leads.lead_id),
@@ -67,6 +69,7 @@ export async function ingestWebhook(body, meta = {}) {
           last_connected_channel = COALESCE(EXCLUDED.last_connected_channel, leads.last_connected_channel),
           last_event = COALESCE(EXCLUDED.last_event, leads.last_event),
           last_event_at = COALESCE(EXCLUDED.last_event_at, leads.last_event_at),
+          duration_sec = GREATEST(COALESCE(EXCLUDED.duration_sec, 0), COALESCE(leads.duration_sec, 0)),
           raw = EXCLUDED.raw,
           updated_at = NOW()`,
         [
@@ -89,6 +92,7 @@ export async function ingestWebhook(body, meta = {}) {
           normalized.last_connected_channel,
           normalized.event,
           normalized.timestamp || new Date().toISOString(),
+          Number(normalized.duration_sec) || null,
           JSON.stringify(body),
         ],
       )
@@ -102,40 +106,11 @@ export async function ingestWebhook(body, meta = {}) {
     client.release()
   }
 
-  // Sync outcomes into OUR crm_leads by external_id (best-effort; table may not exist pre-deploy)
+  // Sync outcomes into OUR crm_leads by external_id (CRM bridge key — not Convin campaign UUID)
   if (normalized.external_id && hasDatabase()) {
     try {
-      const pool2 = getPool()
-      await pool2.query(
-        `UPDATE crm_leads SET
-           client_status = $2,
-           current_state = COALESCE($3, current_state),
-           convin_lead_id = COALESCE($4, convin_lead_id),
-           raw = COALESCE(raw, '{}'::jsonb) || $5::jsonb,
-           updated_at = NOW()
-         WHERE external_id = $1`,
-        [
-          normalized.external_id,
-          client_status,
-          normalized.current_state ||
-            (client_status === 'verified'
-              ? 'Verified'
-              : client_status === 'uninterested'
-                ? 'Uninterested'
-                : 'In Progress'),
-          normalized.lead_id,
-          JSON.stringify({
-            lastWebhookAt: new Date().toISOString(),
-            interest_level: normalized.interest_level,
-            qualification_status: normalized.qualification_status,
-            goal_achieved: normalized.goal_achieved,
-            call_attempts: normalized.call_attempts,
-            recording_url: normalized.recording_url,
-            transcript: normalized.transcript,
-            call_status: normalized.call_status,
-          }),
-        ],
-      )
+      const { syncCrmLeadFromWebhook } = await import('./crm.js')
+      await syncCrmLeadFromWebhook(normalized, client_status)
     } catch (err) {
       console.warn('[webhook] crm_leads sync skipped:', err instanceof Error ? err.message : err)
     }

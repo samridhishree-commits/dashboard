@@ -53,7 +53,7 @@ export function LeadHistoryModal({
             </p>
           ) : (
             <p className="lifecycle-banner">
-              Simple CRM status for clients: <strong>Verified</strong>, <strong>Uninterested</strong>
+              Simple CRM status for clients: <strong>Verified</strong>, <strong>Not interested</strong>
               , or <strong>In Progress</strong>.
             </p>
           )}
@@ -113,6 +113,12 @@ export function LeadHistoryModal({
                         : ''
                     }`
                   : '—'}
+              </strong>
+            </div>
+            <div>
+              <span className="muted">Talk time</span>
+              <strong>
+                {recordings.reduce((s, r) => s + (r.durationSec || 0), 0)}s
               </strong>
             </div>
             <div>

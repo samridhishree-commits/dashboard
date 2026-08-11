@@ -2250,6 +2250,38 @@ a {
   margin-top: 4px;
 }
 
+.fx-cost-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.fx-cost-grid > div {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid #e8eef5;
+  border-radius: 10px;
+}
+
+.fx-cost-grid em {
+  font-style: normal;
+  font-size: 11px;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fx-cost-grid strong {
+  font-size: 20px;
+  font-weight: 720;
+  color: #0f172a;
+}
+
+.fx-cost-grid .muted {
+  font-size: 11px;
+}
+
 .fx-balance-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
