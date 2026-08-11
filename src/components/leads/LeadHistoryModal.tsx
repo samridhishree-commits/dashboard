@@ -10,21 +10,7 @@ import {
   statusLabel,
 } from '../../utils/lifecycle'
 import { channelAttemptCount } from '../../utils/lifecycle'
-
-function formatWhen(ts?: string) {
-  if (!ts) return '—'
-  const d = new Date(ts)
-  if (Number.isNaN(d.getTime())) {
-    return String(ts).replace('T', ' ').replace(/\.\d+Z?$/, '').slice(0, 19)
-  }
-  return d.toLocaleString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
+import { formatWhen } from '../../utils/formatWhen'
 
 function entityLabel(key: string) {
   const map: Record<string, string> = {

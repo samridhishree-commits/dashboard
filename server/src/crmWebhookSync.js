@@ -47,6 +47,29 @@ export function recordingUrlKey(url) {
   }
 }
 
+/** Normalize any webhook/DB time to ISO UTC so the UI can convert to IST correctly.
+ * Never strip `Z` — that made 06:20 UTC show as 6:20 am instead of 11:50 am IST. */
+export function toIsoUtc(value) {
+  if (!value) return new Date().toISOString()
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? new Date().toISOString() : value.toISOString()
+  }
+  const s = String(value).trim()
+  if (!s) return new Date().toISOString()
+
+  // "2026-08-11 11:50:47.075 +0530" (Postgres text) or ISO with offset
+  const normalized = s.includes('T') ? s : s.replace(' ', 'T')
+  let d = new Date(normalized)
+  if (Number.isNaN(d.getTime())) {
+    // Bare "YYYY-MM-DD HH:mm:ss" from older rows — Convin times are UTC
+    d = new Date(`${normalized.replace(' ', 'T')}Z`)
+  }
+  if (Number.isNaN(d.getTime())) {
+    d = new Date(s)
+  }
+  return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString()
+}
+
 /** Build one recording from a webhook_events row. Prefer top-level call fields;
  * only use last_call_details when it matches this call_id (avoids replaying old audio). */
 export function recordingFromWebhookPayload(payload, fallbackId = '', receivedAt = '') {
@@ -75,14 +98,16 @@ export function recordingFromWebhookPayload(payload, fallbackId = '', receivedAt
     (lastMatches ? last.last_call_transcript : undefined) ||
     undefined
 
-  // Prefer webhook_events.received_at so UI matches the DB log exactly.
-  const at = receivedAt || p.timestamp || p.call_end_time || new Date().toISOString()
+  // Payload timestamp is UTC (…Z). 06:20:46Z → 11:50 am IST (= received_at in DBeaver).
+  const at = toIsoUtc(
+    p.timestamp || receivedAt || p.call_end_time || p.call_start_time || new Date().toISOString(),
+  )
 
   if (!url && !durationSec && !transcript) return null
 
   return {
     id: String(callId),
-    timestamp: String(at).replace('T', ' ').replace(/\.\d+/, '').slice(0, 19),
+    timestamp: at,
     durationSec,
     outcome: p.call_status === 'completed' ? 'completed' : p.call_status || 'completed',
     url,
@@ -158,10 +183,12 @@ export function mergeRecordings(...lists) {
 /** Build UI-shaped raw patch (camelCase) the frontend Lead type expects. */
 export function buildCrmRawPatch(normalized, client_status, existingRaw = {}) {
   const prev = asObj(existingRaw)
-  const at =
+  const at = toIsoUtc(
     normalized.timestamp ||
-    normalized.last_connected_at ||
-    new Date().toISOString()
+      normalized.call_end_time ||
+      normalized.last_connected_at ||
+      new Date().toISOString(),
+  )
   const durationSec = Number(normalized.duration_sec) || 0
   const callId =
     normalized.call_id ||
@@ -170,7 +197,7 @@ export function buildCrmRawPatch(normalized, client_status, existingRaw = {}) {
 
   const incoming = {
     id: String(callId),
-    timestamp: String(at).slice(0, 19).replace('T', ' '),
+    timestamp: at,
     durationSec,
     outcome:
       normalized.call_status === 'completed'
@@ -236,7 +263,7 @@ export function buildCrmRawPatch(normalized, client_status, existingRaw = {}) {
       durationSec > 0 || normalized.call_status === 'completed' ? 1 : 0,
     ),
     interactions: Math.max(Number(prev.interactions) || 0, recordings.length, 1),
-    lastActivity: String(at).slice(0, 19).replace('T', ' '),
+    lastActivity: at,
     recordings,
     channelHistory: nonCallHistory,
     talkSeconds,

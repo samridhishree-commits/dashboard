@@ -1,18 +1,6 @@
 import { useState } from 'react'
 import type { CallRecording } from '../../types'
-
-function formatWhen(ts?: string) {
-  if (!ts) return '—'
-  const d = new Date(ts)
-  if (Number.isNaN(d.getTime())) return ts.replace('T', ' ').replace(/\.\d+Z?$/, '')
-  return d.toLocaleString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
+import { formatWhen } from '../../utils/formatWhen'
 
 export function RecordingsList({
   recordings,
