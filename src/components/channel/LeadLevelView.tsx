@@ -57,7 +57,7 @@ export function LeadLevelView({
           />
         </div>
         <p className="lead-level-hint muted">
-          Statuses: <strong>Verified</strong> · <strong>Not interested</strong> ·{' '}
+          Statuses: <strong>High</strong> · <strong>Moderate</strong> · <strong>Low intent</strong> ·{' '}
           <strong>In Progress</strong>. Invalid phones stay in CRM and are never sent to Convin.
         </p>
         <div className="lead-level-bar-actions">

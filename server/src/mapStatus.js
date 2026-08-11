@@ -1,18 +1,20 @@
 /**
- * Map Convin CRM Push / fetch fields → our CRM clientStatus.
- * Verified (Hot) | Uninterested (Warm/Cold/Not Interested) | In Progress
+ * Map Convin CRM Push interest_level → our 4 CRM categories:
+ * High intent (hot) | Moderate intent (warm) | Low intent (cold/not interested) | In Progress
  */
 
-const HOT = new Set(['hot', 'qualified', 'qualify', 'high'])
-const UNINTERESTED = new Set([
-  'warm',
+const HIGH = new Set(['hot', 'high', 'high intent', 'high_intent'])
+const MODERATE = new Set(['warm', 'moderate', 'moderate intent', 'moderate_intent'])
+const LOW = new Set([
   'cold',
+  'low',
+  'low intent',
+  'low_intent',
   'not interested',
   'not_interested',
   'uninterested',
   'disqualified',
   'no interest',
-  'low',
 ])
 
 function norm(v) {
@@ -20,37 +22,21 @@ function norm(v) {
   return String(v).trim().toLowerCase().replace(/_/g, ' ')
 }
 
-function truthyGoal(v) {
-  if (v === true || v === 1) return true
-  if (v === false || v === 0 || v == null) return false
-  const s = String(v).trim().toLowerCase()
-  return s === 'true' || s === 'yes' || s === '1'
-}
-
 /**
- * @returns {'verified' | 'uninterested' | 'in_progress'}
+ * @returns {'high_intent' | 'moderate_intent' | 'low_intent' | 'in_progress'}
  */
 export function mapClientStatus(fields = {}) {
   const interest = norm(fields.interest_level)
-  const qualification = norm(fields.qualification_status)
-  const goal = truthyGoal(fields.goal_achieved)
 
-  if (goal || HOT.has(interest) || HOT.has(qualification)) {
-    return 'verified'
-  }
-
-  if (UNINTERESTED.has(interest) || UNINTERESTED.has(qualification)) {
-    return 'uninterested'
-  }
-
-  // Partial matches e.g. "Not Interested - busy"
+  if (HIGH.has(interest) || interest.includes('hot')) return 'high_intent'
+  if (MODERATE.has(interest) || interest.includes('warm')) return 'moderate_intent'
   if (
+    LOW.has(interest) ||
+    interest.includes('cold') ||
     interest.includes('not interest') ||
-    interest.includes('uninterest') ||
-    qualification.includes('not interest') ||
-    qualification.includes('disqualif')
+    interest.includes('uninterest')
   ) {
-    return 'uninterested'
+    return 'low_intent'
   }
 
   return 'in_progress'
@@ -68,11 +54,40 @@ export function normalizeWebhookBody(body = {}) {
     body.External_ID ||
     null
 
+  const extracted = {}
+  for (const [k, v] of Object.entries(body)) {
+    if (
+      ['jee_percentile', '12th_percentage', 'tenth_percentage', 'neet_score', 'budget'].includes(k) &&
+      v != null &&
+      String(v).trim() !== ''
+    ) {
+      extracted[k] = String(v)
+    }
+  }
+  for (const [k, v] of Object.entries(entities)) {
+    if (v != null && typeof v !== 'object' && String(v).trim() !== '') {
+      extracted[k] = String(v)
+    }
+  }
+  for (const [k, v] of Object.entries(custom)) {
+    if (
+      v != null &&
+      typeof v !== 'object' &&
+      !['external_id', 'name', 'first_name', 'last_name', 'phone', 'email'].includes(k)
+    ) {
+      extracted[k] = String(v)
+    }
+  }
+
   return {
     request_id: body.request_id ?? null,
     lead_id: body.lead_id ?? null,
     external_id: external_id ? String(external_id).trim() : null,
-    name: body.name || custom.name || [custom.first_name, custom.last_name].filter(Boolean).join(' ') || null,
+    name:
+      body.name ||
+      custom.name ||
+      [custom.first_name, custom.last_name].filter(Boolean).join(' ') ||
+      null,
     phone: body.phone || body.phone_number || null,
     email: body.email || null,
     campaign_id: body.campaign_id || null,
@@ -87,8 +102,7 @@ export function normalizeWebhookBody(body = {}) {
     call_attempts: Number(body.call_attempts ?? last.last_call_attempt_number ?? 0) || 0,
     call_status: body.call_status || last.last_call_status || null,
     duration_sec: body.duration_sec ?? last.last_call_duration_sec ?? null,
-    recording_url:
-      body.recording_url || last.last_call_recording_url || null,
+    recording_url: body.recording_url || last.last_call_recording_url || null,
     transcript: last.last_call_transcript || body.transcript || null,
     last_connected_at: body.last_connected_at || null,
     last_connected_channel: body.last_connected_channel || null,
@@ -97,6 +111,7 @@ export function normalizeWebhookBody(body = {}) {
     call_id: body.call_id || last.last_call_id || null,
     agent_name: body.agent_name || body.agent || null,
     callback_requested: entities.callback_requested ?? null,
+    extracted_entities: extracted,
     raw: body,
   }
 }

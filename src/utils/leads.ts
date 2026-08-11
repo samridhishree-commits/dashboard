@@ -1,18 +1,53 @@
 import type { Lead } from '../types'
 
-/** Client-facing CRM status (not Convin hot/warm/cold). */
-export type ClientLeadStatus = 'verified' | 'uninterested' | 'in_progress'
+/** Client-facing CRM status driven by Convin interest_level. */
+export type ClientLeadStatus =
+  | 'high_intent'
+  | 'moderate_intent'
+  | 'low_intent'
+  | 'in_progress'
+  | 'verified'
+  | 'uninterested'
 
 export const clientStatusLabels: Record<ClientLeadStatus, string> = {
-  verified: 'Verified',
-  uninterested: 'Not interested',
+  high_intent: 'High intent',
+  moderate_intent: 'Moderate intent',
+  low_intent: 'Low intent',
   in_progress: 'In Progress',
+  verified: 'High intent',
+  uninterested: 'Low intent',
 }
 
 export const clientStatusHints: Record<ClientLeadStatus, string> = {
-  verified: 'Hot · qualified via voicebot',
-  uninterested: 'Warm / Cold / declined interest',
+  high_intent: 'Hot · strong interest',
+  moderate_intent: 'Warm · may be interested',
+  low_intent: 'Cold / not interested',
   in_progress: 'Call ongoing / Not attempted',
+  verified: 'Hot · strong interest',
+  uninterested: 'Cold / not interested',
+}
+
+/** Normalize legacy DB values + new interest buckets. */
+export function normalizeClientStatus(s: string | undefined | null): ClientLeadStatus {
+  const v = String(s || '')
+    .trim()
+    .toLowerCase()
+    .replace(/ /g, '_')
+  if (v === 'verified' || v === 'hot' || v === 'high_intent') return 'high_intent'
+  if (v === 'warm' || v === 'moderate_intent') return 'moderate_intent'
+  if (v === 'uninterested' || v === 'cold' || v === 'low_intent' || v === 'not_interested')
+    return 'low_intent'
+  if (v === 'in_progress') return 'in_progress'
+  return 'in_progress'
+}
+
+export function isHighIntent(s: ClientLeadStatus | string): boolean {
+  return normalizeClientStatus(s) === 'high_intent'
+}
+
+export function isInterestedStatus(s: ClientLeadStatus | string): boolean {
+  const n = normalizeClientStatus(s)
+  return n === 'high_intent' || n === 'moderate_intent'
 }
 
 /** Digits-only phone for validation & Convin. */
@@ -169,5 +204,12 @@ export function filterConvinReadyLeads(leads: Lead[]): Lead[] {
 }
 
 export function isClientStatus(s: string): s is ClientLeadStatus {
-  return s === 'verified' || s === 'uninterested' || s === 'in_progress'
+  return (
+    s === 'high_intent' ||
+    s === 'moderate_intent' ||
+    s === 'low_intent' ||
+    s === 'in_progress' ||
+    s === 'verified' ||
+    s === 'uninterested'
+  )
 }

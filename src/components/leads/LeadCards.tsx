@@ -3,8 +3,10 @@ import type { Lead } from '../../types'
 import { clientStatusHints, statusLabel } from '../../utils/lifecycle'
 
 function StatusIcon({ status }: { status: Lead['clientStatus'] }) {
-  if (status === 'verified') return <CheckCircle2 size={12} />
-  if (status === 'uninterested') return <Ban size={12} />
+  const s = status === 'verified' ? 'high_intent' : status === 'uninterested' ? 'low_intent' : status
+  if (s === 'high_intent') return <CheckCircle2 size={12} />
+  if (s === 'moderate_intent') return <Phone size={12} />
+  if (s === 'low_intent') return <Ban size={12} />
   return <Loader size={12} />
 }
 

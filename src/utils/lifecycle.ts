@@ -1,8 +1,8 @@
 import type { Channel, ChannelTouchEvent, Lead } from '../types'
 import { channelVerifyLabels } from './verification'
-import { clientStatusHints, clientStatusLabels, type ClientLeadStatus } from './leads'
+import { clientStatusHints, clientStatusLabels, normalizeClientStatus, type ClientLeadStatus } from './leads'
 
-export { clientStatusLabels, clientStatusHints }
+export { clientStatusLabels, clientStatusHints, normalizeClientStatus }
 export type { ClientLeadStatus }
 
 export const channelLifecycleLabels: Record<Channel, string> = {
@@ -52,19 +52,21 @@ export function getChannelHistory(lead: Lead, channel?: Channel): ChannelTouchEv
 }
 
 export function statusLabel(lead: Lead): string {
-  return clientStatusLabels[lead.clientStatus] ?? 'In Progress'
+  return clientStatusLabels[normalizeClientStatus(lead.clientStatus)] ?? 'In Progress'
 }
 
 export function statusHint(lead: Lead): string {
-  return clientStatusHints[lead.clientStatus] ?? ''
+  return clientStatusHints[normalizeClientStatus(lead.clientStatus)] ?? ''
 }
 
 export function currentStateLabel(lead: Lead): string {
   if (!lead.phoneValid) return 'Invalid phone'
   if (lead.currentState) return lead.currentState
   if (lead.archived) return 'Archived'
-  if (lead.clientStatus === 'verified') return 'Verified'
-  if (lead.clientStatus === 'uninterested') return 'Not interested'
+  const s = normalizeClientStatus(lead.clientStatus)
+  if (s === 'high_intent') return 'High intent'
+  if (s === 'moderate_intent') return 'Moderate intent'
+  if (s === 'low_intent') return 'Low intent'
   if (lead.callAttempts > 0) return 'Call ongoing'
   return 'Not attempted'
 }
@@ -94,8 +96,13 @@ export function countByClientStatus(leads: Lead[]) {
     total: active.length,
     valid: active.filter((l) => l.phoneValid).length,
     invalid: active.filter((l) => !l.phoneValid).length,
-    verified: active.filter((l) => l.clientStatus === 'verified').length,
-    uninterested: active.filter((l) => l.clientStatus === 'uninterested').length,
-    inProgress: active.filter((l) => l.clientStatus === 'in_progress').length,
+    highIntent: active.filter((l) => normalizeClientStatus(l.clientStatus) === 'high_intent').length,
+    moderateIntent: active.filter((l) => normalizeClientStatus(l.clientStatus) === 'moderate_intent')
+      .length,
+    lowIntent: active.filter((l) => normalizeClientStatus(l.clientStatus) === 'low_intent').length,
+    inProgress: active.filter((l) => normalizeClientStatus(l.clientStatus) === 'in_progress').length,
+    // legacy aliases used by older UI bits
+    verified: active.filter((l) => normalizeClientStatus(l.clientStatus) === 'high_intent').length,
+    uninterested: active.filter((l) => normalizeClientStatus(l.clientStatus) === 'low_intent').length,
   }
 }

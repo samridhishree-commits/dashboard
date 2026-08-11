@@ -27,8 +27,8 @@ export function CampaignCard({
           <span className={`status-pill status-${campaign.status}`}>{campaign.status}</span>
         </h4>
         <p className="muted" style={{ margin: 0 }}>
-          {campaign.course} · {stats.total} leads · {stats.verified} verified ·{' '}
-          {stats.uninterested} not interested · {stats.inProgress} in progress
+          {campaign.course} · {stats.total} leads · {stats.highIntent} high ·{' '}
+          {stats.moderateIntent} moderate · {stats.lowIntent} low · {stats.inProgress} in progress
           {stats.invalid ? ` · ${stats.invalid} invalid` : ''} · {minutes} min ·{' '}
           {formatStarted(campaign.createdAt)}
         </p>

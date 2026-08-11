@@ -26,7 +26,12 @@ export function verificationComboLabel(channels: VerifyChannel[]): string {
 }
 
 export function isLeadVerified(l: Lead): boolean {
-  return (l.verifiedChannels?.length ?? 0) > 0 || l.verified
+  return (
+    (l.verifiedChannels?.length ?? 0) > 0 ||
+    l.verified ||
+    l.clientStatus === 'high_intent' ||
+    l.clientStatus === 'verified'
+  )
 }
 
 export function withVerification(

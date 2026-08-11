@@ -17,6 +17,7 @@ import { AppShell, PageCrumb } from '../components/layout/AppShell'
 import { AnalyticsSuite } from '../components/charts/AnalyticsSuite'
 import { KpiCard, KpiPopover } from '../components/ui/KpiCard'
 import { Modal } from '../components/ui/Modal'
+import { LeadActivityNudge } from '../components/leads/LeadActivityNudge'
 import { LeadHistoryModal } from '../components/leads/LeadHistoryModal'
 import { useApp } from '../context/AppContext'
 import { CSV_SAMPLE, voicebotTypeLabels } from '../data/mockData'
@@ -27,8 +28,9 @@ import {
   isLeadVerified,
 } from '../utils/verification'
 import { filterConvinReadyLeads } from '../utils/leads'
+import { buildLeadActivityIndex, leadsEligibleForConvinPush } from '../utils/leadActivity'
 import { parseLeadsCsv } from '../utils/parseLeadsCsv'
-import { statusLabel } from '../utils/lifecycle'
+import { normalizeClientStatus, statusLabel } from '../utils/lifecycle'
 
 function downloadSampleCsv() {
   const blob = new Blob([CSV_SAMPLE], { type: 'text/csv;charset=utf-8;' })
@@ -66,6 +68,7 @@ export function InstitutePage() {
   const institute = institutes.find((i) => i.id === instituteId)
   const campaigns = instituteCampaigns(instituteId)
   const activeCampaign = activeCampaignId ? getCampaign(activeCampaignId) : null
+  const leadActivity = useMemo(() => buildLeadActivityIndex(campaigns), [campaigns])
 
   const [createOpen, setCreateOpen] = useState(false)
   const [campName, setCampName] = useState('')
@@ -126,9 +129,14 @@ export function InstitutePage() {
       total: leads.length,
       valid: leads.filter((l) => l.phoneValid).length,
       invalid: leads.filter((l) => !l.phoneValid).length,
-      verified: leads.filter((l) => l.clientStatus === 'verified').length,
-      uninterested: leads.filter((l) => l.clientStatus === 'uninterested').length,
-      inProgress: leads.filter((l) => l.clientStatus === 'in_progress').length,
+      highIntent: leads.filter((l) => normalizeClientStatus(l.clientStatus) === 'high_intent')
+        .length,
+      moderateIntent: leads.filter(
+        (l) => normalizeClientStatus(l.clientStatus) === 'moderate_intent',
+      ).length,
+      lowIntent: leads.filter((l) => normalizeClientStatus(l.clientStatus) === 'low_intent').length,
+      inProgress: leads.filter((l) => normalizeClientStatus(l.clientStatus) === 'in_progress')
+        .length,
       convinReady: filterConvinReadyLeads(leads).length,
     }
   }, [visibleLeads])
@@ -164,11 +172,18 @@ export function InstitutePage() {
   }, [campaigns, filters])
 
   const pagedLeads = visibleLeads.slice(0, pageSize)
-  const allVisibleSelected =
-    visibleLeads.length > 0 && visibleLeads.every((l) => selectedLeadIds.has(l.id))
+  const deletableVisible = visibleLeads.filter((l) => !leadActivity.forLead(l).locked)
+  const allDeletableSelected =
+    deletableVisible.length > 0 && deletableVisible.every((l) => selectedLeadIds.has(l.id))
   const selectedCount = selectedLeadIds.size
+  const selectedDeletable = [...selectedLeadIds].filter((id) => {
+    const lead = visibleLeads.find((l) => l.id === id)
+    return lead && !leadActivity.forLead(lead).locked
+  })
 
   const toggleLeadSelected = (leadId: string) => {
+    const lead = visibleLeads.find((l) => l.id === leadId)
+    if (lead && leadActivity.forLead(lead).locked) return
     setSelectedLeadIds((prev) => {
       const next = new Set(prev)
       if (next.has(leadId)) next.delete(leadId)
@@ -179,20 +194,23 @@ export function InstitutePage() {
 
   const toggleSelectAllVisible = () => {
     setSelectedLeadIds((prev) => {
-      if (visibleLeads.every((l) => prev.has(l.id))) return new Set()
-      return new Set(visibleLeads.map((l) => l.id))
+      if (deletableVisible.every((l) => prev.has(l.id))) return new Set()
+      return new Set(deletableVisible.map((l) => l.id))
     })
   }
 
   const handleDeleteSelected = async () => {
-    if (!activeCampaign || !selectedCount || deletingLeads) return
+    if (!activeCampaign || !selectedDeletable.length || deletingLeads) return
+    const skipped = selectedCount - selectedDeletable.length
     const ok = window.confirm(
-      `Delete ${selectedCount} lead${selectedCount === 1 ? '' : 's'} from this campaign and the database?`,
+      skipped > 0
+        ? `Delete ${selectedDeletable.length} lead(s)? ${skipped} active lead(s) will be skipped (already in a campaign).`
+        : `Delete ${selectedDeletable.length} lead${selectedDeletable.length === 1 ? '' : 's'} from this campaign and the database?`,
     )
     if (!ok) return
     setDeletingLeads(true)
     try {
-      await deleteLeads(activeCampaign.id, [...selectedLeadIds])
+      await deleteLeads(activeCampaign.id, selectedDeletable)
       setSelectedLeadIds(new Set())
     } finally {
       setDeletingLeads(false)
@@ -522,16 +540,10 @@ export function InstitutePage() {
                 className="btn btn-primary"
                 disabled={
                   !!runningCampaignId ||
-                  filterConvinReadyLeads(activeCampaign.leads).filter(
-                    (l) =>
-                      l.convinPushStatus !== 'success' && l.convinPushStatus !== 'duplicate',
-                  ).length === 0
+                  leadsEligibleForConvinPush(filterConvinReadyLeads(activeCampaign.leads)).length === 0
                 }
                 title={
-                  filterConvinReadyLeads(activeCampaign.leads).filter(
-                    (l) =>
-                      l.convinPushStatus !== 'success' && l.convinPushStatus !== 'duplicate',
-                  ).length === 0
+                  leadsEligibleForConvinPush(filterConvinReadyLeads(activeCampaign.leads)).length === 0
                     ? 'Upload valid leads first (or all valid leads already pushed)'
                     : 'Push valid leads to Convin'
                 }
@@ -552,18 +564,25 @@ export function InstitutePage() {
           <div className="kpi-row" style={{ marginBottom: 12 }}>
             <KpiCard label="Total leads" value={campaignLeadStats.total} icon="users" color="blue" />
             <KpiCard
-              label="Verified"
-              value={campaignLeadStats.verified}
+              label="High intent"
+              value={campaignLeadStats.highIntent}
               icon="verified"
               color="green"
-              tip="Hot · verified via voicebot"
+              tip="Hot · strong interest"
             />
             <KpiCard
-              label="Not interested"
-              value={campaignLeadStats.uninterested}
+              label="Moderate intent"
+              value={campaignLeadStats.moderateIntent}
               icon="multi"
               color="orange"
-              tip="Warm / Cold / Not interested"
+              tip="Warm · may be interested"
+            />
+            <KpiCard
+              label="Low intent"
+              value={campaignLeadStats.lowIntent}
+              icon="badge"
+              color="red"
+              tip="Cold / not interested"
             />
             <KpiCard
               label="In Progress"
@@ -588,15 +607,22 @@ export function InstitutePage() {
               {selectedCount ? ` · ${selectedCount} selected` : ''}
             </span>
             <div className="stack-h">
-              {selectedCount ? (
+              {selectedDeletable.length ? (
                 <button
                   type="button"
                   className="btn btn-outline btn-sm lead-delete-btn"
                   disabled={deletingLeads}
                   onClick={() => void handleDeleteSelected()}
-                  title="Remove selected leads from CRM database"
+                  title="Remove selected leads that are not active in a campaign"
                 >
-                  <Trash2 size={13} /> {deletingLeads ? 'Deleting…' : 'Delete selected'}
+                  <Trash2 size={13} />{' '}
+                  {deletingLeads
+                    ? 'Deleting…'
+                    : `Delete selected${
+                        selectedCount > selectedDeletable.length
+                          ? ` (${selectedDeletable.length})`
+                          : ''
+                      }`}
                 </button>
               ) : null}
               <button
@@ -652,10 +678,10 @@ export function InstitutePage() {
                   <th className="lead-check-col">
                     <input
                       type="checkbox"
-                      aria-label="Select all leads"
-                      checked={allVisibleSelected}
+                      aria-label="Select all deletable leads"
+                      checked={allDeletableSelected}
                       onChange={toggleSelectAllVisible}
-                      disabled={!visibleLeads.length}
+                      disabled={!deletableVisible.length}
                     />
                   </th>
                   <th>Name</th>
@@ -669,12 +695,15 @@ export function InstitutePage() {
                 </tr>
               </thead>
               <tbody>
-                {pagedLeads.map((l) => (
+                {pagedLeads.map((l) => {
+                  const activity = leadActivity.forLead(l)
+                  const locked = activity.locked
+                  return (
                   <tr
                     key={l.id}
                     className={`lead-row-click ${l.phoneValid ? '' : 'lead-row-invalid'} ${
                       selectedLeadIds.has(l.id) ? 'lead-row-selected' : ''
-                    }`}
+                    } ${locked ? 'lead-row-locked' : ''}`}
                     onClick={() => setHistoryLead(l)}
                     title="View lead history"
                   >
@@ -687,11 +716,22 @@ export function InstitutePage() {
                         type="checkbox"
                         aria-label={`Select ${l.first_name} ${l.last_name}`}
                         checked={selectedLeadIds.has(l.id)}
+                        disabled={locked}
+                        title={
+                          locked
+                            ? 'Active in a campaign — cannot delete'
+                            : 'Select to delete'
+                        }
                         onChange={() => toggleLeadSelected(l.id)}
                       />
                     </td>
                     <td>
-                      {l.first_name} {l.last_name}
+                      <span className="lead-name-cell">
+                        <LeadActivityNudge activity={activity} />
+                        <span>
+                          {l.first_name} {l.last_name}
+                        </span>
+                      </span>
                     </td>
                     <td>
                       <code className="ext-id-code">{l.external_id}</code>
@@ -715,7 +755,8 @@ export function InstitutePage() {
                     <td>{l.source || 'API'}</td>
                     <td>{l.city}</td>
                   </tr>
-                ))}
+                  )
+                })}
                 {!pagedLeads.length ? (
                   <tr>
                     <td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
@@ -942,7 +983,10 @@ export function InstitutePage() {
               <button
                 type="button"
                 className="btn btn-primary"
-                disabled={!activeCampaign || filterConvinReadyLeads(activeCampaign.leads).length === 0}
+                disabled={
+                  !activeCampaign ||
+                  leadsEligibleForConvinPush(filterConvinReadyLeads(activeCampaign.leads)).length === 0
+                }
                 onClick={() => {
                   if (activeCampaign) {
                     startVoicebotRun(activeCampaign.id, selectedVoiceType)
@@ -958,8 +1002,12 @@ export function InstitutePage() {
         >
           {activeCampaign ? (
             <p className="convin-push-note">
-              Convin will receive <strong>{filterConvinReadyLeads(activeCampaign.leads).length}</strong>{' '}
-              leads with <code>external_id</code>, <code>phone_number</code>, and <code>name</code>{' '}
+              Convin will receive{' '}
+              <strong>
+                {leadsEligibleForConvinPush(filterConvinReadyLeads(activeCampaign.leads)).length}
+              </strong>{' '}
+              new leads with <code>external_id</code>, <code>phone_number</code>, and <code>name</code>
+              . Already-pushed leads are skipped.
               only.
               {activeCampaign.leads.filter((l) => !l.phoneValid).length > 0
                 ? ` ${activeCampaign.leads.filter((l) => !l.phoneValid).length} invalid phone(s) stay in CRM and will not be sent.`

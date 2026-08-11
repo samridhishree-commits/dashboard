@@ -5,9 +5,11 @@
  * Webhook join key back into CRM: external_id (never Convin campaign UUID).
  */
 import { getPool, hasDatabase } from './db.js'
+import { mapClientStatus } from './mapStatus.js'
 import {
   buildCrmRawPatch,
   hydrateLeadFields,
+  normalizeStoredStatus,
   STATUS_STATE,
 } from './crmWebhookSync.js'
 
@@ -227,6 +229,19 @@ function rowToLead(row, convinLead) {
       recording_url: mergedRaw.recording_url ?? convinLead.recording_url,
       transcript: mergedRaw.transcript ?? convinLead.transcript,
       duration_sec: mergedRaw.duration_sec ?? convinLead.duration_sec,
+      interest_level: mergedRaw.interest_level ?? convinLead.interest_level,
+      interest_level_reason:
+        mergedRaw.interest_level_reason ?? convinLead.interest_level_reason,
+      qualification_status:
+        mergedRaw.qualification_status ?? convinLead.qualification_status,
+      qualification_reason:
+        mergedRaw.qualification_reason ?? convinLead.qualification_reason,
+      goal_achieved: mergedRaw.goal_achieved ?? convinLead.goal_achieved,
+      goal_achieved_reason:
+        mergedRaw.goal_achieved_reason ?? convinLead.goal_achieved_reason,
+      jee_percentile: mergedRaw.jee_percentile ?? convinLead.jee_percentile,
+      '12th_percentage':
+        mergedRaw['12th_percentage'] ?? convinLead.twelfth_percentage,
       lastWebhookAt: mergedRaw.lastWebhookAt || convinLead.updated_at,
     }
     if (!mergedRaw.recordings?.length && (convinLead.recording_url || convinLead.transcript || convinLead.duration_sec)) {
@@ -243,7 +258,11 @@ function rowToLead(row, convinLead) {
     }
   }
   const h = hydrateLeadFields(mergedRaw)
-  const clientStatus = row.client_status || convinLead?.client_status || 'in_progress'
+  const clientStatus = h.interestLevel
+    ? mapClientStatus({ interest_level: h.interestLevel })
+    : normalizeStoredStatus(
+        row.client_status || convinLead?.client_status || 'in_progress',
+      )
   return {
     id: row.id,
     phone_number: row.phone_number,
@@ -261,7 +280,7 @@ function rowToLead(row, convinLead) {
     createdAt: row.created_at
       ? new Date(row.created_at).toISOString().slice(0, 10)
       : new Date().toISOString().slice(0, 10),
-    verified: h.verified || clientStatus === 'verified',
+    verified: h.verified || clientStatus === 'high_intent',
     verifiedChannels: h.verifiedChannels,
     verificationHistory: h.verificationHistory,
     channelHistory: h.channelHistory,
@@ -275,13 +294,17 @@ function rowToLead(row, convinLead) {
     voicebotNote: h.voicebotNote,
     source: row.source || 'CSV',
     country: row.country || 'India',
-    currentState:
-      row.current_state ||
-      STATUS_STATE[clientStatus] ||
-      undefined,
+    currentState: row.current_state || STATUS_STATE[clientStatus] || undefined,
     lastConnectedAt: h.lastConnectedAt,
     lastConnectedChannel: h.lastConnectedChannel,
     agentName: h.agentName,
+    interestLevel: h.interestLevel,
+    interestLevelReason: h.interestLevelReason,
+    qualificationStatus: h.qualificationStatus,
+    qualificationReason: h.qualificationReason,
+    goalAchieved: h.goalAchieved,
+    goalAchievedReason: h.goalAchievedReason,
+    extractedEntities: h.extractedEntities,
     convinLeadId: row.convin_lead_id || convinLead?.lead_id || undefined,
     convinPushStatus: row.convin_push_status || undefined,
     convinPushMessage: row.convin_push_message || undefined,
@@ -318,7 +341,21 @@ async function convinLeadsByExternalIds(externalIds) {
     `SELECT DISTINCT ON (external_id)
        external_id, lead_id, client_status, call_attempts, call_status,
        recording_url, transcript, last_event_at, updated_at,
-       COALESCE(duration_sec, NULLIF((raw->>'duration_sec')::float, 0), 0) AS duration_sec
+       COALESCE(duration_sec, NULLIF((raw->>'duration_sec')::float, 0), 0) AS duration_sec,
+       raw->>'interest_level' AS interest_level,
+       raw->>'interest_level_reason' AS interest_level_reason,
+       COALESCE(raw->>'qualification_status', qualification_status) AS qualification_status,
+       raw->>'qualification_reason' AS qualification_reason,
+       COALESCE(
+         CASE
+           WHEN raw ? 'goal_achieved' THEN (raw->>'goal_achieved')::boolean
+           ELSE goal_achieved
+         END,
+         goal_achieved
+       ) AS goal_achieved,
+       raw->>'goal_achieved_reason' AS goal_achieved_reason,
+       raw->>'jee_percentile' AS jee_percentile,
+       raw->>'12th_percentage' AS twelfth_percentage
      FROM leads
      WHERE external_id = ANY($1::text[])
      ORDER BY external_id, updated_at DESC`,
@@ -339,8 +376,9 @@ export async function syncCrmLeadFromWebhook(normalized, client_status) {
 
   let updated = 0
   const campaignIds = new Set()
+  const status = normalizeStoredStatus(client_status)
   for (const row of rows) {
-    const patch = buildCrmRawPatch(normalized, client_status, row.raw)
+    const patch = buildCrmRawPatch(normalized, status, row.raw)
     await pool.query(
       `UPDATE crm_leads SET
          client_status = $2,
@@ -351,8 +389,8 @@ export async function syncCrmLeadFromWebhook(normalized, client_status) {
        WHERE id = $1`,
       [
         row.id,
-        client_status,
-        normalized.current_state || STATUS_STATE[client_status] || null,
+        status,
+        normalized.current_state || STATUS_STATE[status] || null,
         normalized.lead_id,
         JSON.stringify(patch),
       ],

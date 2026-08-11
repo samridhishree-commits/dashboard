@@ -30,6 +30,7 @@ import {
   saveCrmPushResults,
 } from '../services/crm'
 import { filterConvinReadyLeads, toConvinPayload } from '../utils/leads'
+import { buildLeadActivityIndex, leadsEligibleForConvinPush } from '../utils/leadActivity'
 
 const defaultFilters: GlobalFilters = {
   search: '',
@@ -233,9 +234,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const campaign = campaigns.find((c) => c.id === campaignId)
     if (!campaign) return
 
-    const ready = filterConvinReadyLeads(campaign.leads).filter(
-      (l) => l.convinPushStatus !== 'success' && l.convinPushStatus !== 'duplicate',
-    )
+    const ready = leadsEligibleForConvinPush(filterConvinReadyLeads(campaign.leads))
     const payload = ready
       .map((l) => toConvinPayload(l))
       .filter((p): p is NonNullable<typeof p> => p !== null)
@@ -291,7 +290,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       )
       setLastPushError(
         already
-          ? 'All valid leads were already uploaded to Convin. Add new leads to push again.'
+          ? 'All valid leads were already uploaded to Convin. New uploads will push only leads that were never sent.'
           : 'No valid leads to upload to Convin.',
       )
       setRunProgress(100)
@@ -469,8 +468,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [campaigns])
 
   const deleteLeads = useCallback(async (campaignId: string, leadIds: string[]) => {
-    const ids = [...new Set(leadIds.filter(Boolean))]
-    if (!ids.length) return
+    const campaign = campaigns.find((c) => c.id === campaignId)
+    const activity = buildLeadActivityIndex(campaigns)
+    const ids = [
+      ...new Set(
+        leadIds.filter((id) => {
+          const lead = campaign?.leads.find((l) => l.id === id)
+          if (!lead) return false
+          return !activity.forLead(lead).locked
+        }),
+      ),
+    ]
+    if (!ids.length) {
+      setLastPushError('No deletable leads selected (active campaign leads are locked).')
+      return
+    }
 
     setCampaigns((prev) =>
       prev.map((c) =>
@@ -502,7 +514,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         /* ignore */
       }
     }
-  }, [])
+  }, [campaigns])
 
   const setCampaignStatus = useCallback((campaignId: string, status: CampaignStatus) => {
     setCampaigns((prev) =>

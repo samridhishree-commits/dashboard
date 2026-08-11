@@ -13,13 +13,12 @@ import type { Channel, Lead, VoicebotType } from '../../types'
 import { parseLeadsCsv } from '../../utils/parseLeadsCsv'
 import { countByClientStatus } from '../../utils/lifecycle'
 import { filterConvinReadyLeads } from '../../utils/leads'
+import { leadsEligibleForConvinPush } from '../../utils/leadActivity'
 
 type DetailTab = 'analytics' | 'leads'
 
 function unpushedReadyCount(leads: Lead[]) {
-  return filterConvinReadyLeads(leads).filter(
-    (l) => l.convinPushStatus !== 'success' && l.convinPushStatus !== 'duplicate',
-  ).length
+  return leadsEligibleForConvinPush(filterConvinReadyLeads(leads)).length
 }
 
 /**
@@ -488,18 +487,25 @@ export function ChannelWorkspace({ channel }: { channel: Channel }) {
             hint={`${runningCount} running`}
           />
           <KpiCard
-            label="Verified"
-            value={poolStats.verified}
+            label="High intent"
+            value={poolStats.highIntent}
             icon="verified"
             color="green"
-            tip="Hot · qualified via voicebot"
+            tip="Hot · strong interest"
           />
           <KpiCard
-            label="Not interested"
-            value={poolStats.uninterested}
+            label="Moderate intent"
+            value={poolStats.moderateIntent}
             icon="badge"
             color="orange"
-            tip="Warm / Cold / Not interested"
+            tip="Warm · may be interested"
+          />
+          <KpiCard
+            label="Low intent"
+            value={poolStats.lowIntent}
+            icon="unverified"
+            color="red"
+            tip="Cold / not interested"
           />
           <KpiCard
             label="In Progress"

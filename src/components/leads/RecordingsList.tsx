@@ -1,6 +1,18 @@
 import { useState } from 'react'
-import { Pause, Play } from 'lucide-react'
 import type { CallRecording } from '../../types'
+
+function formatWhen(ts?: string) {
+  if (!ts) return '—'
+  const d = new Date(ts)
+  if (Number.isNaN(d.getTime())) return ts.replace('T', ' ').replace(/\.\d+Z?$/, '')
+  return d.toLocaleString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
 
 export function RecordingsList({
   recordings,
@@ -9,8 +21,9 @@ export function RecordingsList({
   recordings: CallRecording[]
   emptyLabel?: string
 }) {
-  const [playingId, setPlayingId] = useState<string | null>(null)
   const [openTranscriptId, setOpenTranscriptId] = useState<string | null>(null)
+  /** Only one native player active at a time (pause others). */
+  const [activeId, setActiveId] = useState<string | null>(null)
 
   if (!recordings.length) {
     return (
@@ -24,16 +37,21 @@ export function RecordingsList({
     <div className="lifecycle-rec-list">
       <p className="lifecycle-rec-count muted">
         {recordings.length} recording{recordings.length === 1 ? '' : 's'}
+        {recordings.length > 1 ? ' · same lead, multiple calls' : ''}
       </p>
       {recordings.map((r, i) => {
-        const playing = playingId === r.id
         const showTranscript = openTranscriptId === r.id
+        const canPlay = Boolean(r.url)
+        const isActive = activeId === r.id
         return (
-          <article key={r.id} className={`lifecycle-rec-card ${playing ? 'is-playing' : ''}`}>
+          <article
+            key={r.id}
+            className={`lifecycle-rec-card ${isActive ? 'is-playing' : ''}`}
+          >
             <div className="lifecycle-rec-top">
               <span className="lifecycle-rec-n">#{i + 1}</span>
               <div className="lifecycle-rec-meta">
-                <strong>{r.timestamp}</strong>
+                <strong>{formatWhen(r.timestamp) || `Call ${i + 1}`}</strong>
                 <span>
                   <em className="lifecycle-status">{r.outcome.replace('_', ' ')}</em>
                   <span className="muted"> · {r.durationSec}s</span>
@@ -43,23 +61,38 @@ export function RecordingsList({
                   <span className="lifecycle-rec-fail">{r.failureReason}</span>
                 ) : null}
               </div>
-              <button
-                type="button"
-                className={`btn btn-sm ${playing ? 'btn-outline' : 'btn-primary'}`}
-                onClick={() => setPlayingId(playing ? null : r.id)}
-                aria-label={playing ? `Pause recording ${i + 1}` : `Play recording ${i + 1}`}
-              >
-                {playing ? <Pause size={13} /> : <Play size={13} />}
-                {playing ? 'Pause' : 'Play'}
-              </button>
             </div>
 
-            {playing ? (
-              <div className="lifecycle-rec-player" aria-live="polite">
-                <div className="lifecycle-rec-wave" />
-                <span className="muted">Playing demo recording {i + 1}…</span>
+            {canPlay ? (
+              <div className="lifecycle-rec-player">
+                <audio
+                  src={r.url}
+                  controls
+                  preload="none"
+                  style={{ width: '100%' }}
+                  onPlay={(e) => {
+                    setActiveId(r.id)
+                    // Pause every other audio on the page so only one plays
+                    const el = e.currentTarget
+                    document.querySelectorAll('audio').forEach((a) => {
+                      if (a !== el) a.pause()
+                    })
+                  }}
+                  onPause={() => {
+                    if (activeId === r.id) setActiveId(null)
+                  }}
+                  onEnded={() => setActiveId(null)}
+                >
+                  <a href={r.url} target="_blank" rel="noreferrer">
+                    Open recording
+                  </a>
+                </audio>
               </div>
-            ) : null}
+            ) : (
+              <p className="muted" style={{ margin: '6px 0 0', fontSize: 12 }}>
+                Recording link not available for this call.
+              </p>
+            )}
 
             {r.transcript ? (
               <div className="lifecycle-rec-transcript-wrap">

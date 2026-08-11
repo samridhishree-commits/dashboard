@@ -2,7 +2,15 @@ export type VoicebotType = 'btech' | 'mbbs' | 'mba' | 'online'
 export type Channel = 'voicebot' | 'sms' | 'email' | 'whatsapp'
 export type CampaignStatus = 'draft' | 'ready' | 'running' | 'completed' | 'paused' | 'failed'
 /** Client-facing status shown in CRM (not Convin interest taxonomy). */
-export type ClientLeadStatus = 'verified' | 'uninterested' | 'in_progress'
+export type ClientLeadStatus =
+  | 'high_intent'
+  | 'moderate_intent'
+  | 'low_intent'
+  | 'in_progress'
+  /** @deprecated legacy — treated as high_intent */
+  | 'verified'
+  /** @deprecated legacy — treated as low_intent */
+  | 'uninterested'
 export type CallOutcome = 'answered' | 'no_answer' | 'busy' | 'completed' | 'failed'
 
 export interface CallRecording {
@@ -74,7 +82,7 @@ export interface Lead {
   verifiedChannels: VerifyChannel[]
   verificationHistory: VerificationEvent[]
   channelHistory: ChannelTouchEvent[]
-  /** CRM status: Verified | Not interested | In Progress */
+  /** CRM status from interest_level: High / Moderate / Low intent | In Progress */
   clientStatus: ClientLeadStatus
   callAttempts: number
   callConnected: number
@@ -93,6 +101,15 @@ export interface Lead {
   smsMessageAttempts?: number
   agentName?: string
   callbackRequested?: boolean
+  /** Convin interest_level (hot/warm/cold) */
+  interestLevel?: string
+  interestLevelReason?: string
+  qualificationStatus?: string
+  qualificationReason?: string
+  goalAchieved?: boolean
+  goalAchievedReason?: string
+  /** Extracted entities from webhook (JEE %, 12th %, etc.) */
+  extractedEntities?: Record<string, string>
 }
 
 export interface Campaign {

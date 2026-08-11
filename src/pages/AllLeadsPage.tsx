@@ -3,10 +3,12 @@ import { useParams } from 'react-router-dom'
 import { Filter, Search } from 'lucide-react'
 import { AppShell, PageCrumb } from '../components/layout/AppShell'
 import { KpiCard } from '../components/ui/KpiCard'
+import { LeadActivityNudge } from '../components/leads/LeadActivityNudge'
 import { LeadHistoryModal } from '../components/leads/LeadHistoryModal'
 import { useApp } from '../context/AppContext'
 import { channelLabels } from '../data/mockData'
 import type { Channel, Lead } from '../types'
+import { buildLeadActivityIndex } from '../utils/leadActivity'
 import { isLeadVerified, verificationComboLabel } from '../utils/verification'
 
 type FlatLead = {
@@ -38,13 +40,15 @@ export function AllLeadsPage() {
   const { instituteId = '' } = useParams()
   const { institutes, filters, setFilters, resetFilters, instituteCampaigns } = useApp()
   const institute = institutes.find((i) => i.id === instituteId)
+  const campaigns = instituteCampaigns(instituteId)
+  const leadActivity = useMemo(() => buildLeadActivityIndex(campaigns), [campaigns])
   const [channelFilter, setChannelFilter] = useState('All Channels')
   const [sourceFilter, setSourceFilter] = useState('All Sources')
   const [historyRow, setHistoryRow] = useState<FlatLead | null>(null)
 
   const allLeads: FlatLead[] = useMemo(() => {
     const rows: FlatLead[] = []
-    for (const c of instituteCampaigns(instituteId)) {
+    for (const c of campaigns) {
       for (const l of c.leads) {
         rows.push({
           lead: l,
@@ -75,7 +79,7 @@ export function AllLeadsPage() {
       }
     }
     return rows
-  }, [instituteCampaigns, instituteId])
+  }, [campaigns])
 
   const sources = useMemo(
     () => Array.from(new Set(allLeads.map((l) => l.source))).sort(),
@@ -262,7 +266,12 @@ export function AllLeadsPage() {
                   onClick={() => setHistoryRow(l)}
                   title="View full lead history"
                 >
-                  <td>{l.name}</td>
+                  <td>
+                    <span className="lead-name-cell">
+                      <LeadActivityNudge activity={leadActivity.forLead(l.lead)} />
+                      <span>{l.name}</span>
+                    </span>
+                  </td>
                   <td>{l.email || '—'}</td>
                   <td>{l.phone}</td>
                   <td>
@@ -280,11 +289,13 @@ export function AllLeadsPage() {
                   <td>{l.city}</td>
                   <td>
                     <span className={`status-pill status-${l.clientStatus}`}>
-                      {l.clientStatus === 'verified'
-                        ? 'Verified'
-                        : l.clientStatus === 'uninterested'
-                          ? 'Not interested'
-                          : 'In Progress'}
+                      {l.clientStatus === 'high_intent' || l.clientStatus === 'verified'
+                        ? 'High intent'
+                        : l.clientStatus === 'moderate_intent'
+                          ? 'Moderate intent'
+                          : l.clientStatus === 'low_intent' || l.clientStatus === 'uninterested'
+                            ? 'Low intent'
+                            : 'In Progress'}
                     </span>
                   </td>
                   <td>

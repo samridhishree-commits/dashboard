@@ -16,18 +16,18 @@ export const CHART = {
   strokeWidth: 2.25,
   /** Brand blues + restrained accents (matches --primary / sidebar) */
   colors: {
-    blue: '#2f6fed',
-    blueSoft: '#6b93e8',
-    blueDeep: '#1e4bb8',
-    orange: '#c47a2c',
-    green: '#2f7d57',
-    violet: '#5b6b8c',
+    blue: '#3b82f6',
+    blueSoft: '#60a5fa',
+    blueDeep: '#2563eb',
+    orange: '#f59e0b',
+    green: '#22c55e',
+    violet: '#8b5cf6',
     slate: '#94a3b8',
-    red: '#b45353',
+    red: '#ef4444',
     ink: '#334155',
   },
   /** Sequential blue scale for donuts — no rainbow */
-  donut: ['#1e4bb8', '#2f6fed', '#6b93e8', '#b7c9e8'],
+  donut: ['#2563eb', '#3b82f6', '#60a5fa', '#93c5fd'],
 }
 
 export const noPointEnds = {
