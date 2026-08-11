@@ -221,16 +221,17 @@ export async function setCrmCampaignStatus(campaignId, status) {
 
 function rowToLead(row, convinLead, webhookRecordings = []) {
   const raw = typeof row.raw === 'object' && row.raw ? row.raw : {}
-  // Merge leftover Convin `leads` row (by external_id) so UI shows calls already received
+  // Analysis / interest fields may still come from Convin `leads` — never call audio.
   let mergedRaw = { ...raw }
   if (convinLead) {
     mergedRaw = {
       ...mergedRaw,
-      call_attempts: mergedRaw.call_attempts ?? convinLead.call_attempts,
+      call_attempts: Math.max(
+        Number(mergedRaw.call_attempts) || 0,
+        Number(convinLead.call_attempts) || 0,
+        webhookRecordings.length,
+      ),
       call_status: mergedRaw.call_status ?? convinLead.call_status,
-      recording_url: mergedRaw.recording_url ?? convinLead.recording_url,
-      transcript: mergedRaw.transcript ?? convinLead.transcript,
-      duration_sec: mergedRaw.duration_sec ?? convinLead.duration_sec,
       interest_level: mergedRaw.interest_level ?? convinLead.interest_level,
       interest_level_reason:
         mergedRaw.interest_level_reason ?? convinLead.interest_level_reason,
@@ -247,24 +248,20 @@ function rowToLead(row, convinLead, webhookRecordings = []) {
       lastWebhookAt: mergedRaw.lastWebhookAt || convinLead.updated_at,
     }
   }
-  // Source of truth for multi-call: webhook_events (one row per attempt) ∪ stored recordings
-  const fromConvinLatest =
-    convinLead && (convinLead.recording_url || convinLead.transcript || convinLead.duration_sec)
-      ? [
-          {
-            id: convinLead.lead_id || `convin-${convinLead.external_id}`,
-            timestamp: convinLead.last_event_at || convinLead.updated_at || '',
-            durationSec: Number(convinLead.duration_sec) || 0,
-            outcome: convinLead.call_status || 'completed',
-            url: convinLead.recording_url || undefined,
-            transcript: convinLead.transcript || undefined,
-          },
-        ]
-      : []
-
+  // Recordings = webhook_events for this external_id only (already deduped by URL).
   const h = hydrateLeadFields(
-    mergedRaw,
-    mergeRecordings(webhookRecordings, fromConvinLatest),
+    {
+      ...mergedRaw,
+      recordings: [],
+      recording_url: undefined,
+      transcript: undefined,
+      duration_sec: undefined,
+      call_attempts: Math.max(
+        Number(mergedRaw.call_attempts) || 0,
+        webhookRecordings.length,
+      ),
+    },
+    webhookRecordings,
   )
   const clientStatus = h.interestLevel
     ? mapClientStatus({ interest_level: h.interestLevel })
@@ -388,13 +385,18 @@ async function webhookRecordingsByExternalIds(externalIds) {
   )
   const map = new Map()
   for (const row of rows) {
-    const rec = recordingFromWebhookPayload(row.payload, `we-${row.id}`)
+    const receivedAt =
+      row.received_at instanceof Date
+        ? row.received_at.toISOString()
+        : String(row.received_at || '')
+    const rec = recordingFromWebhookPayload(row.payload, `we-${row.id}`, receivedAt)
     if (!rec) continue
     const list = map.get(row.external_id) || []
     list.push(rec)
     map.set(row.external_id, list)
   }
   for (const [ext, list] of map) {
+    // One card per distinct audio file / call_id — matches webhook log, not Convin leads.
     map.set(ext, mergeRecordings(list))
   }
   return map

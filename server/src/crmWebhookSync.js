@@ -47,22 +47,42 @@ export function recordingUrlKey(url) {
   }
 }
 
-export function recordingFromWebhookPayload(payload, fallbackId = '') {
+/** Build one recording from a webhook_events row. Prefer top-level call fields;
+ * only use last_call_details when it matches this call_id (avoids replaying old audio). */
+export function recordingFromWebhookPayload(payload, fallbackId = '', receivedAt = '') {
   const body = asObj(payload)
   const { _meta, ...p } = body
   const last = p.last_call_details || {}
-  const callId =
-    p.call_id || last.last_call_id || fallbackId || `wh-${p.timestamp || Date.now()}`
-  const durationSec = Number(p.duration_sec ?? last.last_call_duration_sec ?? 0) || 0
-  const url = p.recording_url || last.last_call_recording_url || undefined
-  const transcript = last.last_call_transcript || p.transcript || undefined
-  const at = p.timestamp || p.call_end_time || new Date().toISOString()
+  const topCallId = p.call_id ? String(p.call_id) : ''
+  const lastCallId = last.last_call_id ? String(last.last_call_id) : ''
+  const lastMatches = !topCallId || !lastCallId || topCallId === lastCallId
+
+  const callId = topCallId || lastCallId || fallbackId || `wh-${p.timestamp || Date.now()}`
+  const durationSec =
+    Number(
+      p.duration_sec != null
+        ? p.duration_sec
+        : lastMatches
+          ? last.last_call_duration_sec
+          : 0,
+    ) || 0
+  const url =
+    p.recording_url ||
+    (lastMatches ? last.last_call_recording_url : undefined) ||
+    undefined
+  const transcript =
+    p.transcript ||
+    (lastMatches ? last.last_call_transcript : undefined) ||
+    undefined
+
+  // Prefer webhook_events.received_at so UI matches the DB log exactly.
+  const at = receivedAt || p.timestamp || p.call_end_time || new Date().toISOString()
 
   if (!url && !durationSec && !transcript) return null
 
   return {
     id: String(callId),
-    timestamp: String(at).slice(0, 19).replace('T', ' '),
+    timestamp: String(at).replace('T', ' ').replace(/\.\d+/, '').slice(0, 19),
     durationSec,
     outcome: p.call_status === 'completed' ? 'completed' : p.call_status || 'completed',
     url,
@@ -71,39 +91,56 @@ export function recordingFromWebhookPayload(payload, fallbackId = '') {
   }
 }
 
-/** Merge recordings uniquely by call_id (preferred) or bare recording path. */
+/**
+ * Merge recordings uniquely by recording file URL (same audio = one call),
+ * then by call_id. Never keep two cards for the same audio under different ids.
+ */
 export function mergeRecordings(...lists) {
   const byId = new Map()
   const byUrl = new Map()
   const out = []
 
+  const richer = (a, b) => {
+    const score = (r) =>
+      (r.url ? 4 : 0) + (r.transcript ? 2 : 0) + (Number(r.durationSec) > 0 ? 1 : 0)
+    return score(b) >= score(a) ? { ...a, ...b, url: b.url || a.url, transcript: b.transcript || a.transcript } : { ...b, ...a, url: a.url || b.url, transcript: a.transcript || b.transcript }
+  }
+
   const add = (r) => {
     if (!r || (!r.id && !r.url && !r.durationSec && !r.transcript)) return
     const id = r.id ? String(r.id) : ''
     const urlKey = recordingUrlKey(r.url)
+
+    if (urlKey && byUrl.has(urlKey)) {
+      const prev = byUrl.get(urlKey)
+      const merged = richer(prev, r)
+      // Keep earlier call id if both exist; timestamp: prefer later event
+      if (String(r.timestamp || '') > String(prev.timestamp || '')) {
+        merged.timestamp = r.timestamp
+      }
+      byUrl.set(urlKey, merged)
+      if (prev.id) byId.set(String(prev.id), merged)
+      if (merged.id) byId.set(String(merged.id), merged)
+      const idx = out.findIndex(
+        (x) =>
+          x === prev ||
+          (urlKey && recordingUrlKey(x.url) === urlKey) ||
+          (prev.id && x.id === prev.id),
+      )
+      if (idx >= 0) out[idx] = merged
+      return
+    }
+
     if (id && byId.has(id)) {
       const prev = byId.get(id)
-      const merged = {
-        ...prev,
-        ...r,
-        url: r.url || prev.url,
-        transcript: r.transcript || prev.transcript,
-      }
+      const merged = richer(prev, r)
       byId.set(id, merged)
+      if (urlKey) byUrl.set(urlKey, merged)
       const idx = out.findIndex((x) => x.id === id)
       if (idx >= 0) out[idx] = merged
       return
     }
-    if (!id && urlKey && byUrl.has(urlKey)) {
-      const prev = byUrl.get(urlKey)
-      Object.assign(prev, {
-        ...prev,
-        ...r,
-        url: r.url || prev.url,
-        transcript: r.transcript || prev.transcript,
-      })
-      return
-    }
+
     const row = { ...r, id: id || `rec-${out.length + 1}` }
     out.push(row)
     if (row.id) byId.set(String(row.id), row)
@@ -224,20 +261,11 @@ export function buildCrmRawPatch(normalized, client_status, existingRaw = {}) {
  */
 export function hydrateLeadFields(raw = {}, extraRecordings = []) {
   const r = asObj(raw)
-  let recordings = mergeRecordings(r.recordings, extraRecordings)
-  if (!recordings.length && (r.recording_url || r.transcript || r.duration_sec)) {
-    recordings = mergeRecordings(recordings, [
-      {
-        id: 'legacy-wh',
-        timestamp: r.lastWebhookAt || r.lastActivity || '',
-        durationSec: Number(r.duration_sec) || 0,
-        outcome: r.call_status || 'completed',
-        url: r.recording_url || undefined,
-        transcript: r.transcript || undefined,
-        answeredBy: r.agent_name || r.agentName || undefined,
-      },
-    ])
-  }
+  // Prefer explicit extras (usually rebuilt from webhook_events). Only fall back to
+  // raw.recordings when no extras were provided — never invent a phantom first call.
+  let recordings = extraRecordings?.length
+    ? mergeRecordings(extraRecordings)
+    : mergeRecordings(r.recordings)
 
   const callAttempts = Math.max(
     Number(r.callAttempts ?? r.call_attempts ?? 0) || 0,

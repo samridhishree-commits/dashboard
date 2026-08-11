@@ -879,6 +879,140 @@ a {
   gap: 14px;
 }
 
+.lead-hist-modal-clean {
+  gap: 12px;
+}
+
+.lead-hist-section-flat {
+  padding: 12px 0;
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  border-radius: 0;
+}
+
+.lead-compact-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  align-items: flex-start;
+}
+
+.lead-compact-meta {
+  min-width: 120px;
+}
+
+.lead-compact-meta > span {
+  display: block;
+  font-size: 11px;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 4px;
+}
+
+.lead-interest-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.lead-interest-row .muted {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.lead-observation-card {
+  background: #f8fafc;
+  border: 1px solid #e8eef5;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.lead-observation-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #334155;
+}
+
+.lead-entity-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.lead-entity-chip {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: #f7fbff;
+  border: 1px solid #dbe7f3;
+  border-radius: 8px;
+  min-width: 100px;
+}
+
+.lead-entity-chip em {
+  font-style: normal;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #64748b;
+}
+
+.lead-entity-chip strong {
+  font-size: 15px;
+  color: #0f172a;
+}
+
+.lead-call-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.lead-call-item {
+  border: 1px solid #e8eef5;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fff;
+}
+
+.lead-call-item-head {
+  margin-bottom: 8px;
+}
+
+.lead-call-item-head strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.lead-call-item .lifecycle-rec-list {
+  margin: 0;
+}
+
+.lead-call-item .lifecycle-rec-count {
+  display: none;
+}
+
+.lead-call-item .lifecycle-rec-card {
+  border: none;
+  padding: 0;
+  background: transparent;
+}
+
+.lead-call-item .lifecycle-rec-top {
+  display: none;
+}
+
 .lead-hist-section {
   background: #fff;
   border: 1px solid #e8eef5;
@@ -1953,8 +2087,8 @@ a {
 }
 
 .modal-xl {
-  width: min(1100px, 100%);
-  max-height: min(92vh, 900px);
+  width: min(1180px, 96vw);
+  max-height: min(92vh, 920px);
 }
 
 .modal-head {

@@ -5,23 +5,11 @@ import type { Channel, Lead } from '../../types'
 import {
   channelLifecycleLabels,
   channelsTouched,
-  clientStatusHints,
-  currentStateLabel,
   getChannelHistory,
   normalizeClientStatus,
   statusLabel,
 } from '../../utils/lifecycle'
 import { channelAttemptCount } from '../../utils/lifecycle'
-
-function eventTitle(event: string, attemptNumber?: number) {
-  if (event === 'call_attempt') return `Call attempt${attemptNumber ? ` ${attemptNumber}` : ''}`
-  if (event === 'message_sent') return 'Message sent'
-  if (event === 'delivered') return 'Delivered'
-  if (event === 'verified') return 'Verified'
-  if (event === 'failed') return 'Failed'
-  if (event === 'callback_requested') return 'Callback requested'
-  return event.replace(/_/g, ' ')
-}
 
 function formatWhen(ts?: string) {
   if (!ts) return '—'
@@ -50,103 +38,63 @@ function entityLabel(key: string) {
   return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
-function displayCurrentState(lead: Lead) {
-  const raw = (lead.currentState || '').toLowerCase()
-  if (!raw) return currentStateLabel(lead)
-  if (raw.includes('uninterest') || raw === 'not interested') {
-    return statusLabel({ ...lead, clientStatus: normalizeClientStatus(lead.clientStatus) })
-  }
-  if (raw === 'verified') return 'High intent'
-  return lead.currentState || currentStateLabel(lead)
+function outcomeLabel(outcome?: string) {
+  if (!outcome) return 'Unknown'
+  return outcome.replace(/_/g, ' ')
 }
 
-function Metric({
-  label,
-  children,
-}: {
-  label: string
-  children: ReactNode
-}) {
+function CompactMeta({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="lead-metric-tile">
-      <span className="muted">{label}</span>
-      <div className="lead-metric-value">{children}</div>
+    <div className="lead-compact-meta">
+      <span>{label}</span>
+      <div>{children}</div>
     </div>
   )
 }
 
-function CallAnalysisBlock({ lead }: { lead: Lead }) {
+function ObservationsBlock({ lead }: { lead: Lead }) {
   const entities = lead.extractedEntities || {}
-  const entityEntries = Object.entries(entities).filter(([, v]) => v != null && String(v).trim() !== '')
-  const hasAnalysis =
-    lead.interestLevel ||
-    lead.goalAchieved != null ||
-    lead.qualificationStatus ||
-    entityEntries.length > 0
+  const entityEntries = Object.entries(entities).filter(
+    ([, v]) => v != null && String(v).trim() !== '',
+  )
+  const observations = [
+    lead.goalAchievedReason,
+    lead.qualificationReason,
+  ].filter((t) => t && String(t).trim())
 
-  if (!hasAnalysis) return null
+  if (!lead.interestLevel && !observations.length && !entityEntries.length) return null
 
   return (
-    <section className="lead-hist-section">
-      <h4 className="lead-hist-h">Call analysis</h4>
-      <div className="lead-analysis-grid">
-        <div className="lead-analysis-card">
-          <span className="muted">Goal achievement</span>
-          <strong>
-            <span
-              className={`status-pill ${
-                lead.goalAchieved ? 'status-completed' : 'status-in_progress'
-              }`}
-            >
-              {lead.goalAchieved == null ? '—' : lead.goalAchieved ? 'yes' : 'no'}
-            </span>
-          </strong>
-          {lead.goalAchievedReason ? (
-            <p className="lead-analysis-reason">{lead.goalAchievedReason}</p>
-          ) : null}
-        </div>
-        <div className="lead-analysis-card">
-          <span className="muted">Lead qualification</span>
-          <strong>
-            <span className="status-pill status-warm">
-              {lead.qualificationStatus || '—'}
-            </span>
-          </strong>
-          {lead.qualificationReason ? (
-            <p className="lead-analysis-reason">{lead.qualificationReason}</p>
-          ) : null}
-        </div>
-        <div className="lead-analysis-card">
-          <span className="muted">Interest level</span>
-          <strong>
-            <span className={`status-pill status-${normalizeClientStatus(lead.clientStatus)}`}>
-              {lead.interestLevel || statusLabel(lead)}
-            </span>
-          </strong>
-          {lead.interestLevelReason ? (
-            <p className="lead-analysis-reason">{lead.interestLevelReason}</p>
-          ) : (
-            <p className="muted" style={{ margin: '6px 0 0', fontSize: 12 }}>
-              Reason appears when Convin sends interest_level_reason
-            </p>
-          )}
-        </div>
+    <section className="lead-hist-section lead-hist-section-flat">
+      <div className="lead-interest-row">
+        <span className="muted">Interest</span>
+        <span className={`status-pill status-${normalizeClientStatus(lead.clientStatus)}`}>
+          {lead.interestLevel || statusLabel(lead)}
+        </span>
       </div>
 
-      {entityEntries.length ? (
-        <>
-          <h4 className="lead-hist-h" style={{ marginTop: 14 }}>
-            Extracted details
+      {observations.length ? (
+        <div className="lead-observation-card">
+          <h4 className="lead-hist-h" style={{ marginBottom: 8 }}>
+            Observation from call on lead till now
           </h4>
-          <div className="lead-entity-grid">
-            {entityEntries.map(([k, v]) => (
-              <div key={k} className="lead-entity-card">
-                <span className="muted">{entityLabel(k)}</span>
-                <strong>{v}</strong>
-              </div>
+          <ul className="lead-observation-list">
+            {observations.map((text, i) => (
+              <li key={i}>{text}</li>
             ))}
-          </div>
-        </>
+          </ul>
+        </div>
+      ) : null}
+
+      {entityEntries.length ? (
+        <div className="lead-entity-inline">
+          {entityEntries.map(([k, v]) => (
+            <span key={k} className="lead-entity-chip">
+              <em>{entityLabel(k)}</em>
+              <strong>{v}</strong>
+            </span>
+          ))}
+        </div>
       ) : null}
     </section>
   )
@@ -165,44 +113,31 @@ export function LeadHistoryModal({
 }) {
   const isChannelView = Boolean(channel)
   const title = isChannelView
-    ? `${lead.first_name} ${lead.last_name} · ${channelLifecycleLabels[channel!]} lifecycle`
+    ? `${lead.first_name} ${lead.last_name} · ${channelLifecycleLabels[channel!]}`
     : `${lead.first_name} ${lead.last_name} · Lead history`
 
   if (isChannelView && channel) {
-    const events = getChannelHistory(lead, channel)
     const recordings = channel === 'voicebot' ? lead.recordings ?? [] : []
-    const lastCall = recordings.length ? recordings[recordings.length - 1] : null
     const attempts = channelAttemptCount(lead, channel)
     const talkSec = recordings.reduce((s, r) => s + (r.durationSec || 0), 0)
     const statusKey = normalizeClientStatus(lead.clientStatus)
 
     return (
       <Modal title={title} onClose={onClose} xl>
-        <div className="lead-hist-modal">
+        <div className="lead-hist-modal lead-hist-modal-clean">
           {!lead.phoneValid ? (
             <p className="lifecycle-banner lifecycle-banner-warn">
-              Invalid phone — stored in CRM only. This lead is <strong>not sent to Convin</strong>.
-              {lead.phoneInvalidReason ? ` (${lead.phoneInvalidReason})` : ''}
+              Invalid phone — CRM only, not sent to Convin
+              {lead.phoneInvalidReason ? ` (${lead.phoneInvalidReason})` : ''}.
             </p>
-          ) : (
-            <p className="lifecycle-banner">
-              Interest from voicebot: <strong>High</strong> (hot), <strong>Moderate</strong>{' '}
-              (warm), <strong>Low</strong> (cold / not interested), or <strong>In Progress</strong>.
-            </p>
-          )}
+          ) : null}
 
-          <section className="lead-hist-section">
-            <div className="lead-metric-grid">
-              <Metric label="Status">
+          <section className="lead-hist-section lead-hist-section-flat">
+            <div className="lead-compact-bar">
+              <CompactMeta label="Status">
                 <span className={`status-pill status-${statusKey}`}>{statusLabel(lead)}</span>
-                <em className="lead-metric-hint">
-                  {clientStatusHints[statusKey] || clientStatusHints.in_progress}
-                </em>
-              </Metric>
-              <Metric label="Current state">
-                <strong>{displayCurrentState(lead)}</strong>
-              </Metric>
-              <Metric label="Phone">
+              </CompactMeta>
+              <CompactMeta label="Phone">
                 <strong>
                   {lead.phone_number}{' '}
                   {lead.phoneValid ? (
@@ -211,102 +146,86 @@ export function LeadHistoryModal({
                     <span className="status-pill status-failed">Invalid</span>
                   )}
                 </strong>
-              </Metric>
-              <Metric label="External ID (CRM)">
+              </CompactMeta>
+              <CompactMeta label="External ID">
                 <code className="ext-id-code">{lead.external_id}</code>
-              </Metric>
-              <Metric label="Client Lead ID">
-                <strong>{lead.clientLeadId || '—'}</strong>
-              </Metric>
-              <Metric label={channel === 'voicebot' ? 'Call attempts' : 'Message attempts'}>
-                <strong>{lead.phoneValid ? attempts : '—'}</strong>
-              </Metric>
-              <Metric label="Recordings">
-                <strong>{channel === 'voicebot' ? recordings.length : '—'}</strong>
-              </Metric>
-              <Metric label="Talk time">
-                <strong>{talkSec ? `${talkSec}s` : '—'}</strong>
-              </Metric>
-              <Metric label="Last connected">
-                <strong>
-                  {lead.lastConnectedAt
-                    ? `${formatWhen(lead.lastConnectedAt)}${
-                        lead.lastConnectedChannel
-                          ? ` · ${channelLifecycleLabels[lead.lastConnectedChannel]}`
-                          : ''
-                      }`
-                    : '—'}
-                </strong>
-              </Metric>
-              <Metric label="Campaign">
+              </CompactMeta>
+              <CompactMeta label="Campaign">
                 <strong>{campaignName || '—'}</strong>
-              </Metric>
+              </CompactMeta>
+              <CompactMeta label="Calls">
+                <strong>
+                  {attempts} · {talkSec ? `${talkSec}s talk` : 'no talk yet'}
+                </strong>
+              </CompactMeta>
             </div>
           </section>
 
-          <CallAnalysisBlock lead={lead} />
+          <ObservationsBlock lead={lead} />
 
-          <section className="lead-hist-section">
-            <h4 className="lead-hist-h">{channelLifecycleLabels[channel]} history</h4>
-            {events.length ? (
-              <ol className="lead-history-list">
-                {events.map((ev) => (
-                  <li key={ev.id}>
-                    <span className="lead-history-dot" />
-                    <div>
-                      <div className="lead-history-title">
-                        {eventTitle(ev.event, ev.attemptNumber)}
-                        {ev.status ? (
-                          <span className="lifecycle-status">{ev.status.replace('_', ' ')}</span>
-                        ) : null}
-                        <time>{formatWhen(ev.at)}</time>
-                      </div>
-                      {ev.detail ? <p>{ev.detail}</p> : null}
-                      {ev.durationSec != null ? (
-                        <p className="muted" style={{ margin: '2px 0 0' }}>
-                          Duration {ev.durationSec}s
+          <section className="lead-hist-section lead-hist-section-flat">
+            <h4 className="lead-hist-h">
+              {channelLifecycleLabels[channel]} history
+              {recordings.length ? (
+                <span className="lifecycle-ch-count">{recordings.length}</span>
+              ) : null}
+            </h4>
+
+            {channel === 'voicebot' && recordings.length ? (
+              <div className="lead-call-stack">
+                {recordings.map((r, i) => (
+                  <article key={r.id} className="lead-call-item">
+                    <div className="lead-call-item-head">
+                      <div>
+                        <strong>
+                          Call attempt {i + 1}
+                          <span className="lifecycle-status">{outcomeLabel(r.outcome)}</span>
+                        </strong>
+                        <p className="muted" style={{ margin: '4px 0 0', fontSize: 12 }}>
+                          {formatWhen(r.timestamp)}
+                          {r.durationSec != null ? ` · ${r.durationSec}s` : ''}
+                          {r.answeredBy ? ` · ${r.answeredBy}` : ''}
                         </p>
-                      ) : null}
+                      </div>
                     </div>
-                  </li>
+                    <RecordingsList recordings={[r]} emptyLabel="No recording URL for this call." />
+                  </article>
                 ))}
-              </ol>
+              </div>
             ) : (
-              <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-                No {channelLifecycleLabels[channel]} touches yet for this lead.
-              </p>
+              (() => {
+                const events = getChannelHistory(lead, channel)
+                if (!events.length) {
+                  return (
+                    <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+                      No {channelLifecycleLabels[channel]} activity yet.
+                    </p>
+                  )
+                }
+                return (
+                  <ol className="lead-history-list">
+                    {events.map((ev) => (
+                      <li key={ev.id}>
+                        <span className="lead-history-dot" />
+                        <div>
+                          <div className="lead-history-title">
+                            {ev.event.replace(/_/g, ' ')}
+                            {ev.status ? (
+                              <span className="lifecycle-status">
+                                {outcomeLabel(ev.status)}
+                              </span>
+                            ) : null}
+                            <time>{formatWhen(ev.at)}</time>
+                          </div>
+                          {ev.detail ? <p>{ev.detail}</p> : null}
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                )
+              })()
             )}
           </section>
-
-          {channel === 'voicebot' ? (
-            <section className="lead-hist-section">
-              <h4 className="lead-hist-h">
-                Call recordings
-                <span className="lifecycle-ch-count">{recordings.length}</span>
-              </h4>
-              <RecordingsList recordings={recordings} />
-              {lastCall ? (
-                <div className="lead-last-call">
-                  <div>
-                    <span className="muted">Last call</span>
-                    <strong>{lastCall.outcome.replace('_', ' ')}</strong>
-                  </div>
-                  <div>
-                    <span className="muted">Duration</span>
-                    <strong>{lastCall.durationSec}s</strong>
-                  </div>
-                  <div>
-                    <span className="muted">When</span>
-                    <strong>{formatWhen(lastCall.timestamp)}</strong>
-                  </div>
-                  <div>
-                    <span className="muted">Agent</span>
-                    <strong>{lastCall.answeredBy || lead.agentName || '—'}</strong>
-                  </div>
-                </div>
-              ) : null}
-            </section>
-          ) : null}
 
           <p className="lifecycle-footnote muted">
             {lead.email ? `${lead.email} · ` : ''}
@@ -319,11 +238,11 @@ export function LeadHistoryModal({
 
   const touched = channelsTouched(lead)
   return (
-    <Modal title={title} onClose={onClose} large>
-      <div className="lead-hist-modal">
-        <section className="lead-hist-section">
-          <div className="lead-metric-grid">
-            <Metric label="Phone">
+    <Modal title={title} onClose={onClose} xl>
+      <div className="lead-hist-modal lead-hist-modal-clean">
+        <section className="lead-hist-section lead-hist-section-flat">
+          <div className="lead-compact-bar">
+            <CompactMeta label="Phone">
               <strong>
                 {lead.phone_number}{' '}
                 {lead.phoneValid ? (
@@ -332,85 +251,52 @@ export function LeadHistoryModal({
                   <span className="status-pill status-failed">Invalid</span>
                 )}
               </strong>
-            </Metric>
-            <Metric label="External ID (CRM)">
+            </CompactMeta>
+            <CompactMeta label="External ID">
               <code className="ext-id-code">{lead.external_id}</code>
-            </Metric>
-            <Metric label="Client Lead ID">
-              <strong>{lead.clientLeadId || '—'}</strong>
-            </Metric>
-            <Metric label="Campaign">
+            </CompactMeta>
+            <CompactMeta label="Campaign">
               <strong>{campaignName || '—'}</strong>
-            </Metric>
-            <Metric label="Status">
+            </CompactMeta>
+            <CompactMeta label="Status">
               <span className={`status-pill status-${normalizeClientStatus(lead.clientStatus)}`}>
                 {statusLabel(lead)}
               </span>
-            </Metric>
+            </CompactMeta>
           </div>
         </section>
 
-        <CallAnalysisBlock lead={lead} />
-
-        <section className="lead-hist-section">
-          <h4 className="lead-hist-h">Full lead history</h4>
-          <ol className="lead-history-list">
-            <li>
-              <span className="lead-history-dot" />
-              <div>
-                <div className="lead-history-title">
-                  Lead captured
-                  <time>{lead.createdAt}</time>
-                </div>
-                <p>
-                  Source {lead.source || '—'} · {lead.course} · {lead.city}, {lead.state}
-                </p>
-              </div>
-            </li>
-          </ol>
-        </section>
+        <ObservationsBlock lead={lead} />
 
         {touched.map((ch) => {
-          const events = getChannelHistory(lead, ch)
           const channelRecordings = ch === 'voicebot' ? lead.recordings ?? [] : []
           return (
-            <section key={ch} className="lead-hist-section lifecycle-channel-block">
-              <h4 className="lead-hist-h">
-                {channelLifecycleLabels[ch]}
-                <span className="lifecycle-ch-count">{events.length}</span>
-              </h4>
-              {events.length ? (
-                <ol className="lead-history-list">
-                  {events.map((ev) => (
-                    <li key={ev.id}>
-                      <span className="lead-history-dot" />
-                      <div>
-                        <div className="lead-history-title">
-                          {eventTitle(ev.event, ev.attemptNumber)}
-                          {ev.status ? (
-                            <span className="lifecycle-status">{ev.status.replace('_', ' ')}</span>
-                          ) : null}
-                          <time>{formatWhen(ev.at)}</time>
-                        </div>
-                        {ev.detail ? <p>{ev.detail}</p> : null}
+            <section key={ch} className="lead-hist-section lead-hist-section-flat">
+              <h4 className="lead-hist-h">{channelLifecycleLabels[ch]}</h4>
+              {ch === 'voicebot' && channelRecordings.length ? (
+                <div className="lead-call-stack">
+                  {channelRecordings.map((r, i) => (
+                    <article key={r.id} className="lead-call-item">
+                      <div className="lead-call-item-head">
+                        <strong>
+                          Call attempt {i + 1}
+                          <span className="lifecycle-status">{outcomeLabel(r.outcome)}</span>
+                        </strong>
+                        <p className="muted" style={{ margin: '4px 0 0', fontSize: 12 }}>
+                          {formatWhen(r.timestamp)}
+                          {r.durationSec != null ? ` · ${r.durationSec}s` : ''}
+                          {r.answeredBy ? ` · ${r.answeredBy}` : ''}
+                        </p>
                       </div>
-                    </li>
+                      <RecordingsList recordings={[r]} />
+                    </article>
                   ))}
-                </ol>
+                </div>
               ) : (
-                <p className="muted" style={{ fontSize: 12 }}>
-                  No events on {channelLifecycleLabels[ch]}
+                <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+                  No call recordings yet.
                 </p>
               )}
-              {ch === 'voicebot' ? (
-                <>
-                  <h4 className="lead-hist-h" style={{ marginTop: 12 }}>
-                    Recordings
-                    <span className="lifecycle-ch-count">{channelRecordings.length}</span>
-                  </h4>
-                  <RecordingsList recordings={channelRecordings} />
-                </>
-              ) : null}
             </section>
           )
         })}
