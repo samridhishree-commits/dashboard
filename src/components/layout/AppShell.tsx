@@ -116,7 +116,11 @@ export function AppShell({
             onClick={() => navigate('/admin')}
             title="Home"
           >
-            CD
+            <img
+              src="/collegedunia-logo.png"
+              alt="Collegedunia"
+              className="rail-logo-img"
+            />
           </button>
           <button
             type="button"
@@ -237,10 +241,15 @@ export function AppShell({
             <div className="brand">
               <button
                 type="button"
-                className="brand-name brand-home"
+                className="brand-home"
                 onClick={() => navigate('/admin')}
+                title="Collegedunia home"
               >
-                collegedunia
+                <img
+                  src="/collegedunia-logo.png"
+                  alt="collegedunia"
+                  className="brand-logo-img"
+                />
               </button>
               {showAdminBadge ? <span className="brand-badge">admin</span> : null}
             </div>

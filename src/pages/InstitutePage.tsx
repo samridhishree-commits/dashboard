@@ -123,6 +123,22 @@ export function InstitutePage() {
     })
   }, [activeCampaign, leadSearch])
 
+  const archivedLeads = useMemo(() => {
+    if (!activeCampaign) return []
+    const q = leadSearch.trim().toLowerCase()
+    return activeCampaign.leads.filter((l) => {
+      if (!l.archived) return false
+      return (
+        !q ||
+        `${l.first_name} ${l.last_name}`.toLowerCase().includes(q) ||
+        l.phone_number.includes(q) ||
+        l.email.toLowerCase().includes(q) ||
+        l.external_id.toLowerCase().includes(q) ||
+        (l.clientLeadId || '').toLowerCase().includes(q)
+      )
+    })
+  }, [activeCampaign, leadSearch])
+
   const campaignLeadStats = useMemo(() => {
     const leads = visibleLeads
     return {
@@ -604,6 +620,7 @@ export function InstitutePage() {
             <span>
               {campaignLeadStats.total} leads · {campaignLeadStats.convinReady} Convin-ready ·{' '}
               {campaignLeadStats.invalid} invalid
+              {archivedLeads.length ? ` · ${archivedLeads.length} archived` : ''}
               {selectedCount ? ` · ${selectedCount} selected` : ''}
             </span>
             <div className="stack-h">
@@ -773,6 +790,70 @@ export function InstitutePage() {
               Showing {Math.min(pageSize, visibleLeads.length)} of {visibleLeads.length}
             </span>
           </div>
+
+          {archivedLeads.length ? (
+            <div className="archived-leads-block">
+              <h4 className="archived-leads-title">
+                Archived leads
+                <span className="lifecycle-ch-count">{archivedLeads.length}</span>
+              </h4>
+              <p className="muted" style={{ margin: '0 0 10px', fontSize: 12 }}>
+                View only — archived leads cannot be restored or deleted from here.
+              </p>
+              <div className="table-wrap">
+                <table className="data-table light">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>External ID (CRM)</th>
+                      <th>Mobile</th>
+                      <th>Phone</th>
+                      <th>Status</th>
+                      <th>Source</th>
+                      <th>City</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {archivedLeads.map((l) => (
+                      <tr
+                        key={l.id}
+                        className="lead-row-click lead-row-archived"
+                        onClick={() => setHistoryLead(l)}
+                        title="View lead history"
+                      >
+                        <td>
+                          <span className="lead-name-cell">
+                            <span className="status-pill status-draft">Archived</span>
+                            <span>
+                              {l.first_name} {l.last_name}
+                            </span>
+                          </span>
+                        </td>
+                        <td>
+                          <code className="ext-id-code">{l.external_id}</code>
+                        </td>
+                        <td>{l.phone_number || '—'}</td>
+                        <td>
+                          {l.phoneValid ? (
+                            <span className="status-pill status-completed">Valid</span>
+                          ) : (
+                            <span className="status-pill status-failed">Invalid</span>
+                          )}
+                        </td>
+                        <td>
+                          <span className={`status-pill status-${l.clientStatus}`}>
+                            {statusLabel(l)}
+                          </span>
+                        </td>
+                        <td>{l.source || 'API'}</td>
+                        <td>{l.city}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
         </Modal>
       ) : null}
 
@@ -808,6 +889,7 @@ export function InstitutePage() {
                     campName.trim(),
                     campCourse,
                     parsedLeads,
+                    'voicebot',
                   )
                   openCampaignTab(campaign)
                   setCreateOpen(false)

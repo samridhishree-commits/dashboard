@@ -1,7 +1,8 @@
 /**
  * Map Convin webhook → OUR crm_leads by external_id (CRM id we minted).
  * Convin campaign UUID is NOT our camp-* id — never join on that.
- * Multiple calls for the same external_id append to recordings[] (keyed by call_id / url).
+ * Multiple calls for the same external_id append to recordings[] (keyed by call_id).
+ * webhook_events is the durable log of every call; recordings[] is rebuilt from it on read.
  */
 
 const STATUS_STATE = {
@@ -9,7 +10,6 @@ const STATUS_STATE = {
   moderate_intent: 'Moderate intent',
   low_intent: 'Low intent',
   in_progress: 'In Progress',
-  // legacy DB values
   verified: 'High intent',
   uninterested: 'Low intent',
 }
@@ -36,6 +36,88 @@ function asObj(raw) {
   }
 }
 
+/** Strip signed-url query so the same audio file matches across webhook retries. */
+export function recordingUrlKey(url) {
+  if (!url) return ''
+  try {
+    const u = new URL(String(url))
+    return `${u.origin}${u.pathname}`
+  } catch {
+    return String(url).split('?')[0]
+  }
+}
+
+export function recordingFromWebhookPayload(payload, fallbackId = '') {
+  const body = asObj(payload)
+  const { _meta, ...p } = body
+  const last = p.last_call_details || {}
+  const callId =
+    p.call_id || last.last_call_id || fallbackId || `wh-${p.timestamp || Date.now()}`
+  const durationSec = Number(p.duration_sec ?? last.last_call_duration_sec ?? 0) || 0
+  const url = p.recording_url || last.last_call_recording_url || undefined
+  const transcript = last.last_call_transcript || p.transcript || undefined
+  const at = p.timestamp || p.call_end_time || new Date().toISOString()
+
+  if (!url && !durationSec && !transcript) return null
+
+  return {
+    id: String(callId),
+    timestamp: String(at).slice(0, 19).replace('T', ' '),
+    durationSec,
+    outcome: p.call_status === 'completed' ? 'completed' : p.call_status || 'completed',
+    url,
+    transcript,
+    answeredBy: p.agent_name || undefined,
+  }
+}
+
+/** Merge recordings uniquely by call_id (preferred) or bare recording path. */
+export function mergeRecordings(...lists) {
+  const byId = new Map()
+  const byUrl = new Map()
+  const out = []
+
+  const add = (r) => {
+    if (!r || (!r.id && !r.url && !r.durationSec && !r.transcript)) return
+    const id = r.id ? String(r.id) : ''
+    const urlKey = recordingUrlKey(r.url)
+    if (id && byId.has(id)) {
+      const prev = byId.get(id)
+      const merged = {
+        ...prev,
+        ...r,
+        url: r.url || prev.url,
+        transcript: r.transcript || prev.transcript,
+      }
+      byId.set(id, merged)
+      const idx = out.findIndex((x) => x.id === id)
+      if (idx >= 0) out[idx] = merged
+      return
+    }
+    if (!id && urlKey && byUrl.has(urlKey)) {
+      const prev = byUrl.get(urlKey)
+      Object.assign(prev, {
+        ...prev,
+        ...r,
+        url: r.url || prev.url,
+        transcript: r.transcript || prev.transcript,
+      })
+      return
+    }
+    const row = { ...r, id: id || `rec-${out.length + 1}` }
+    out.push(row)
+    if (row.id) byId.set(String(row.id), row)
+    if (urlKey) byUrl.set(urlKey, row)
+  }
+
+  for (const list of lists) {
+    if (Array.isArray(list)) list.forEach(add)
+  }
+
+  out.sort((a, b) => String(a.timestamp || '').localeCompare(String(b.timestamp || '')))
+  return out
+}
+
 /** Build UI-shaped raw patch (camelCase) the frontend Lead type expects. */
 export function buildCrmRawPatch(normalized, client_status, existingRaw = {}) {
   const prev = asObj(existingRaw)
@@ -49,52 +131,28 @@ export function buildCrmRawPatch(normalized, client_status, existingRaw = {}) {
     normalized.lead_id ||
     `wh-${Date.now()}`
 
-  const recordings = Array.isArray(prev.recordings) ? [...prev.recordings] : []
-  const already = recordings.some(
-    (r) =>
-      (r.id && String(r.id) === String(callId)) ||
-      (normalized.recording_url && r.url && r.url === normalized.recording_url),
+  const incoming = {
+    id: String(callId),
+    timestamp: String(at).slice(0, 19).replace('T', ' '),
+    durationSec,
+    outcome:
+      normalized.call_status === 'completed'
+        ? 'completed'
+        : normalized.call_status || 'completed',
+    url: normalized.recording_url || undefined,
+    transcript: normalized.transcript || undefined,
+    answeredBy: normalized.agent_name || undefined,
+  }
+
+  const recordings = mergeRecordings(
+    prev.recordings,
+    normalized.recording_url || durationSec > 0 || normalized.transcript ? [incoming] : [],
   )
 
-  // Append — never replace — so multiple calls per external_id are kept
-  if (!already && (normalized.recording_url || durationSec > 0 || normalized.transcript)) {
-    recordings.push({
-      id: String(callId),
-      timestamp: String(at).slice(0, 19).replace('T', ' '),
-      durationSec,
-      outcome:
-        normalized.call_status === 'completed'
-          ? 'completed'
-          : normalized.call_status || 'completed',
-      url: normalized.recording_url || undefined,
-      transcript: normalized.transcript || undefined,
-      answeredBy: normalized.agent_name || undefined,
-    })
-  }
-
   const channelHistory = Array.isArray(prev.channelHistory) ? [...prev.channelHistory] : []
-  const histId = `wh-${callId}`
-  if (!channelHistory.some((e) => e.id === histId)) {
-    channelHistory.push({
-      id: histId,
-      channel: 'voicebot',
-      at: String(at).slice(0, 19).replace('T', ' '),
-      event: normalized.event || 'call_attempt',
-      status: normalized.call_status || client_status,
-      durationSec: durationSec || undefined,
-      detail: [
-        normalized.interest_level ? `Interest ${normalized.interest_level}` : null,
-        normalized.campaign_name ? `Campaign ${normalized.campaign_name}` : null,
-        normalized.call_status,
-        durationSec ? `${durationSec}s` : null,
-      ]
-        .filter(Boolean)
-        .join(' · '),
-      transcript: normalized.transcript || undefined,
-      recordingUrl: normalized.recording_url || undefined,
-      attemptNumber: Number(normalized.call_attempts) || recordings.length || 1,
-    })
-  }
+  const nonCallHistory = channelHistory.filter(
+    (e) => e.event !== 'call_attempt' && e.event !== 'call.analysis_completed',
+  )
 
   const talkSeconds = recordings.reduce((s, r) => s + (Number(r.durationSec) || 0), 0)
   const entities = {
@@ -111,25 +169,25 @@ export function buildCrmRawPatch(normalized, client_status, existingRaw = {}) {
     qualification_reason: normalized.qualification_reason,
     goal_achieved: normalized.goal_achieved,
     goal_achieved_reason: normalized.goal_achieved_reason,
-    call_attempts: normalized.call_attempts,
+    call_attempts: Math.max(
+      Number(normalized.call_attempts) || 0,
+      Number(prev.callAttempts) || 0,
+      recordings.length,
+    ),
     call_status: normalized.call_status,
     recording_url: normalized.recording_url,
     transcript: normalized.transcript,
     duration_sec: durationSec || prev.duration_sec,
     agent_name: normalized.agent_name,
     interestLevel: normalized.interest_level ?? prev.interestLevel,
-    interestLevelReason:
-      normalized.interest_level_reason ?? prev.interestLevelReason,
-    qualificationStatus:
-      normalized.qualification_status ?? prev.qualificationStatus,
-    qualificationReason:
-      normalized.qualification_reason ?? prev.qualificationReason,
+    interestLevelReason: normalized.interest_level_reason ?? prev.interestLevelReason,
+    qualificationStatus: normalized.qualification_status ?? prev.qualificationStatus,
+    qualificationReason: normalized.qualification_reason ?? prev.qualificationReason,
     goalAchieved:
       normalized.goal_achieved != null
         ? Boolean(normalized.goal_achieved)
         : prev.goalAchieved,
-    goalAchievedReason:
-      normalized.goal_achieved_reason ?? prev.goalAchievedReason,
+    goalAchievedReason: normalized.goal_achieved_reason ?? prev.goalAchievedReason,
     extractedEntities: entities,
     callAttempts: Math.max(
       Number(prev.callAttempts) || 0,
@@ -143,7 +201,7 @@ export function buildCrmRawPatch(normalized, client_status, existingRaw = {}) {
     interactions: Math.max(Number(prev.interactions) || 0, recordings.length, 1),
     lastActivity: String(at).slice(0, 19).replace('T', ' '),
     recordings,
-    channelHistory,
+    channelHistory: nonCallHistory,
     talkSeconds,
     lastConnectedAt:
       normalized.last_connected_at || (durationSec > 0 ? at : prev.lastConnectedAt),
@@ -162,12 +220,13 @@ export function buildCrmRawPatch(normalized, client_status, existingRaw = {}) {
 
 /**
  * Hydrate Lead JSON from crm_leads.raw (supports snake_case leftovers + camelCase).
+ * @param extraRecordings recordings rebuilt from webhook_events (source of truth for multi-call)
  */
-export function hydrateLeadFields(raw = {}) {
+export function hydrateLeadFields(raw = {}, extraRecordings = []) {
   const r = asObj(raw)
-  let recordings = Array.isArray(r.recordings) ? r.recordings : []
+  let recordings = mergeRecordings(r.recordings, extraRecordings)
   if (!recordings.length && (r.recording_url || r.transcript || r.duration_sec)) {
-    recordings = [
+    recordings = mergeRecordings(recordings, [
       {
         id: 'legacy-wh',
         timestamp: r.lastWebhookAt || r.lastActivity || '',
@@ -177,10 +236,13 @@ export function hydrateLeadFields(raw = {}) {
         transcript: r.transcript || undefined,
         answeredBy: r.agent_name || r.agentName || undefined,
       },
-    ]
+    ])
   }
 
-  const callAttempts = Number(r.callAttempts ?? r.call_attempts ?? 0) || recordings.length || 0
+  const callAttempts = Math.max(
+    Number(r.callAttempts ?? r.call_attempts ?? 0) || 0,
+    recordings.length,
+  )
 
   const nested = asObj(r.raw)
   const entities = {
@@ -192,7 +254,13 @@ export function hydrateLeadFields(raw = {}) {
       : {}),
   }
   for (const src of [r, nested]) {
-    for (const k of ['jee_percentile', '12th_percentage', 'tenth_percentage', 'neet_score', 'budget']) {
+    for (const k of [
+      'jee_percentile',
+      '12th_percentage',
+      'tenth_percentage',
+      'neet_score',
+      'budget',
+    ]) {
       if (src[k] != null && String(src[k]).trim() !== '' && entities[k] == null) {
         entities[k] = String(src[k])
       }
@@ -206,7 +274,11 @@ export function hydrateLeadFields(raw = {}) {
     interactions: Number(r.interactions ?? 0) || callAttempts,
     lastActivity: r.lastActivity || '',
     recordings,
-    channelHistory: Array.isArray(r.channelHistory) ? r.channelHistory : [],
+    channelHistory: Array.isArray(r.channelHistory)
+      ? r.channelHistory.filter(
+          (e) => e.event !== 'call_attempt' && e.event !== 'call.analysis_completed',
+        )
+      : [],
     lastConnectedAt: r.lastConnectedAt || undefined,
     lastConnectedChannel: r.lastConnectedChannel || undefined,
     agentName: r.agentName || r.agent_name || undefined,

@@ -9,7 +9,9 @@ import { mapClientStatus } from './mapStatus.js'
 import {
   buildCrmRawPatch,
   hydrateLeadFields,
+  mergeRecordings,
   normalizeStoredStatus,
+  recordingFromWebhookPayload,
   STATUS_STATE,
 } from './crmWebhookSync.js'
 
@@ -217,7 +219,7 @@ export async function setCrmCampaignStatus(campaignId, status) {
   )
 }
 
-function rowToLead(row, convinLead) {
+function rowToLead(row, convinLead, webhookRecordings = []) {
   const raw = typeof row.raw === 'object' && row.raw ? row.raw : {}
   // Merge leftover Convin `leads` row (by external_id) so UI shows calls already received
   let mergedRaw = { ...raw }
@@ -244,20 +246,26 @@ function rowToLead(row, convinLead) {
         mergedRaw['12th_percentage'] ?? convinLead.twelfth_percentage,
       lastWebhookAt: mergedRaw.lastWebhookAt || convinLead.updated_at,
     }
-    if (!mergedRaw.recordings?.length && (convinLead.recording_url || convinLead.transcript || convinLead.duration_sec)) {
-      mergedRaw.recordings = [
-        {
-          id: convinLead.lead_id || 'convin-row',
-          timestamp: convinLead.last_event_at || convinLead.updated_at || '',
-          durationSec: Number(convinLead.duration_sec) || 0,
-          outcome: convinLead.call_status || 'completed',
-          url: convinLead.recording_url || undefined,
-          transcript: convinLead.transcript || undefined,
-        },
-      ]
-    }
   }
-  const h = hydrateLeadFields(mergedRaw)
+  // Source of truth for multi-call: webhook_events (one row per attempt) ∪ stored recordings
+  const fromConvinLatest =
+    convinLead && (convinLead.recording_url || convinLead.transcript || convinLead.duration_sec)
+      ? [
+          {
+            id: convinLead.lead_id || `convin-${convinLead.external_id}`,
+            timestamp: convinLead.last_event_at || convinLead.updated_at || '',
+            durationSec: Number(convinLead.duration_sec) || 0,
+            outcome: convinLead.call_status || 'completed',
+            url: convinLead.recording_url || undefined,
+            transcript: convinLead.transcript || undefined,
+          },
+        ]
+      : []
+
+  const h = hydrateLeadFields(
+    mergedRaw,
+    mergeRecordings(webhookRecordings, fromConvinLatest),
+  )
   const clientStatus = h.interestLevel
     ? mapClientStatus({ interest_level: h.interestLevel })
     : normalizeStoredStatus(
@@ -364,52 +372,93 @@ async function convinLeadsByExternalIds(externalIds) {
   return new Map(rows.map((r) => [r.external_id, r]))
 }
 
+/**
+ * Every webhook for these external_ids → recordings[] (one entry per call_id).
+ * This is how we support multiple attempts on the same CRM lead.
+ */
+async function webhookRecordingsByExternalIds(externalIds) {
+  if (!externalIds?.length) return new Map()
+  const pool = requireDb()
+  const { rows } = await pool.query(
+    `SELECT id, external_id, payload, received_at
+     FROM webhook_events
+     WHERE external_id = ANY($1::text[])
+     ORDER BY received_at ASC`,
+    [externalIds],
+  )
+  const map = new Map()
+  for (const row of rows) {
+    const rec = recordingFromWebhookPayload(row.payload, `we-${row.id}`)
+    if (!rec) continue
+    const list = map.get(row.external_id) || []
+    list.push(rec)
+    map.set(row.external_id, list)
+  }
+  for (const [ext, list] of map) {
+    map.set(ext, mergeRecordings(list))
+  }
+  return map
+}
+
 /** Apply webhook outcome onto crm_leads matched by external_id; bump campaign minutes. */
 export async function syncCrmLeadFromWebhook(normalized, client_status) {
   if (!normalized?.external_id) return { updated: 0 }
   const pool = requireDb()
-  const { rows } = await pool.query(
-    `SELECT id, campaign_id, raw FROM crm_leads WHERE external_id = $1`,
-    [normalized.external_id],
-  )
-  if (!rows.length) return { updated: 0 }
-
+  const client = await pool.connect()
   let updated = 0
   const campaignIds = new Set()
   const status = normalizeStoredStatus(client_status)
-  for (const row of rows) {
-    const patch = buildCrmRawPatch(normalized, status, row.raw)
-    await pool.query(
-      `UPDATE crm_leads SET
-         client_status = $2,
-         current_state = COALESCE($3, current_state),
-         convin_lead_id = COALESCE($4, convin_lead_id),
-         raw = $5::jsonb,
-         updated_at = NOW()
-       WHERE id = $1`,
-      [
-        row.id,
-        status,
-        normalized.current_state || STATUS_STATE[status] || null,
-        normalized.lead_id,
-        JSON.stringify(patch),
-      ],
+  try {
+    await client.query('BEGIN')
+    const { rows } = await client.query(
+      `SELECT id, campaign_id, raw FROM crm_leads WHERE external_id = $1 FOR UPDATE`,
+      [normalized.external_id],
     )
-    campaignIds.add(row.campaign_id)
-    updated += 1
-  }
+    if (!rows.length) {
+      await client.query('COMMIT')
+      return { updated: 0 }
+    }
 
-  for (const cid of campaignIds) {
-    await pool.query(
-      `UPDATE crm_campaigns c SET
-         minutes_consumed = COALESCE((
-           SELECT SUM(COALESCE((l.raw->>'talkSeconds')::float, 0)) / 60.0
-           FROM crm_leads l WHERE l.campaign_id = c.id
-         ), c.minutes_consumed, 0),
-         updated_at = NOW()
-       WHERE c.id = $1`,
-      [cid],
-    )
+    for (const row of rows) {
+      const patch = buildCrmRawPatch(normalized, status, row.raw)
+      await client.query(
+        `UPDATE crm_leads SET
+           client_status = $2,
+           current_state = COALESCE($3, current_state),
+           convin_lead_id = COALESCE($4, convin_lead_id),
+           raw = $5::jsonb,
+           updated_at = NOW()
+         WHERE id = $1`,
+        [
+          row.id,
+          status,
+          normalized.current_state || STATUS_STATE[status] || null,
+          normalized.lead_id,
+          JSON.stringify(patch),
+        ],
+      )
+      campaignIds.add(row.campaign_id)
+      updated += 1
+    }
+
+    for (const cid of campaignIds) {
+      await client.query(
+        `UPDATE crm_campaigns c SET
+           minutes_consumed = COALESCE((
+             SELECT SUM(COALESCE((l.raw->>'talkSeconds')::float, 0)) / 60.0
+             FROM crm_leads l WHERE l.campaign_id = c.id
+           ), c.minutes_consumed, 0),
+           updated_at = NOW()
+         WHERE c.id = $1`,
+        [cid],
+      )
+    }
+    await client.query('COMMIT')
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
   }
 
   return { updated }
@@ -435,10 +484,13 @@ export async function listCrmCampaigns(instituteId) {
       [c.id],
     )
     const byExt = await convinLeadsByExternalIds(leadRows.map((r) => r.external_id))
+    const byWebhook = await webhookRecordingsByExternalIds(leadRows.map((r) => r.external_id))
     out.push(
       rowToCampaign(
         c,
-        leadRows.map((r) => rowToLead(r, byExt.get(r.external_id))),
+        leadRows.map((r) =>
+          rowToLead(r, byExt.get(r.external_id), byWebhook.get(r.external_id) || []),
+        ),
       ),
     )
   }
@@ -455,9 +507,12 @@ export async function getCrmCampaign(campaignId) {
     [campaignId],
   )
   const byExt = await convinLeadsByExternalIds(leadRows.map((r) => r.external_id))
+  const byWebhook = await webhookRecordingsByExternalIds(leadRows.map((r) => r.external_id))
   return rowToCampaign(
     rows[0],
-    leadRows.map((r) => rowToLead(r, byExt.get(r.external_id))),
+    leadRows.map((r) =>
+      rowToLead(r, byExt.get(r.external_id), byWebhook.get(r.external_id) || []),
+    ),
   )
 }
 

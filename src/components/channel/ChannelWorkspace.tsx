@@ -163,7 +163,11 @@ export function ChannelWorkspace({ channel }: { channel: Channel }) {
                 {channelLabels[channel]} · {selected.course} ·{' '}
                 <span className={`status-pill status-${selected.status}`}>{selected.status}</span>
                 {' · '}
-                {selected.leads.length} leads · {pendingPush} ready to push
+                {selected.leads.filter((l) => !l.archived).length} leads
+                {selected.leads.some((l) => l.archived)
+                  ? ` · ${selected.leads.filter((l) => l.archived).length} archived`
+                  : ''}{' '}
+                · {pendingPush} ready to push
               </p>
             </div>
             <div className="stack-h">

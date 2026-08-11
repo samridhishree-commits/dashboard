@@ -371,6 +371,17 @@ app.post('/api/crm/campaigns/:id/push-results', async (req, res) => {
     if (req.body?.status) {
       await setCrmCampaignStatus(req.params.id, req.body.status)
     }
+    if (req.body?.channel || req.body?.voicebotType) {
+      const existing = await getCrmCampaign(req.params.id)
+      if (existing) {
+        await upsertCrmCampaign({
+          ...existing,
+          channel: req.body.channel || existing.channel || 'voicebot',
+          voicebotType: req.body.voicebotType || existing.voicebotType,
+          status: req.body.status || existing.status,
+        })
+      }
+    }
     const saved = await getCrmCampaign(req.params.id)
     res.json({ status: 'success', data: saved })
   } catch (err) {

@@ -13,7 +13,9 @@ export const channelLifecycleLabels: Record<Channel, string> = {
 }
 
 export function getChannelHistory(lead: Lead, channel?: Channel): ChannelTouchEvent[] {
-  const stored = lead.channelHistory ?? []
+  const stored = (lead.channelHistory ?? []).filter(
+    (e) => e.event !== 'call_attempt' && e.event !== 'call.analysis_completed',
+  )
   const fromVerify: ChannelTouchEvent[] = (lead.verificationHistory ?? []).map((v) => ({
     id: `ver-${v.id}`,
     channel: v.channel,
@@ -22,6 +24,7 @@ export function getChannelHistory(lead: Lead, channel?: Channel): ChannelTouchEv
     status: 'verified',
     detail: v.note || `Verified via ${channelVerifyLabels[v.channel]}`,
   }))
+  // One timeline row per recording / call_id (supports multiple attempts on same lead)
   const fromCalls: ChannelTouchEvent[] = (lead.recordings ?? []).map((r, i) => ({
     id: `call-${r.id}`,
     channel: 'voicebot' as Channel,
@@ -40,7 +43,7 @@ export function getChannelHistory(lead: Lead, channel?: Channel): ChannelTouchEv
   const merged = [...stored, ...fromVerify, ...fromCalls]
   const seen = new Set<string>()
   const unique = merged.filter((e) => {
-    const key = `${e.channel}|${e.event}|${e.at}|${e.attemptNumber ?? ''}|${e.detail ?? ''}`
+    const key = `${e.channel}|${e.id}|${e.event}|${e.at}|${e.attemptNumber ?? ''}`
     if (seen.has(key)) return false
     seen.add(key)
     return true
@@ -72,7 +75,9 @@ export function currentStateLabel(lead: Lead): string {
 }
 
 export function channelAttemptCount(lead: Lead, channel: Channel): number {
-  if (channel === 'voicebot') return lead.callAttempts
+  if (channel === 'voicebot') {
+    return Math.max(lead.callAttempts || 0, lead.recordings?.length || 0)
+  }
   if (channel === 'whatsapp') return lead.whatsappMessageAttempts ?? 0
   if (channel === 'email') return lead.emailMessageAttempts ?? 0
   if (channel === 'sms') return lead.smsMessageAttempts ?? 0

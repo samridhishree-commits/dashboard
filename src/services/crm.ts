@@ -56,6 +56,7 @@ export async function saveCrmPushResults(
     skippedInvalid?: number
     voicebotType?: string
     status?: CampaignStatus
+    channel?: string
   },
 ): Promise<Campaign | null> {
   const res = await apiFetch<{ data: Campaign }>(

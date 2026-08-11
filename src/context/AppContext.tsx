@@ -392,6 +392,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         leadCount: payload.length,
         skippedInvalid,
         voicebotType: type,
+        channel: 'voicebot',
         status:
           failed > 0 && success + duplicate === 0
             ? 'failed'
@@ -537,7 +538,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const channelCampaigns = useCallback(
     (instituteId: string, channel: Channel) =>
-      campaigns.filter((c) => c.instituteId === instituteId && c.channel === channel),
+      campaigns.filter((c) => {
+        if (c.instituteId !== instituteId) return false
+        // Exact channel match
+        if (c.channel === channel) return true
+        // Legacy: institute-created campaigns often had no channel set; Voicebot is the
+        // only run path from the main dashboard, so treat unset as voicebot.
+        if (channel === 'voicebot' && !c.channel) return true
+        return false
+      }),
     [campaigns],
   )
 
