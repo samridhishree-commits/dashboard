@@ -56,13 +56,21 @@ export function getChannelHistory(lead: Lead, channel?: Channel): ChannelTouchEv
 }
 
 export function statusLabel(lead: Lead): string {
-  // Until Convin accepts the lead (or webhook sets interest), show push outcome — not "In Progress"
   const push = pushOutcomeLabel(lead)
   if (push && lead.convinPushStatus !== 'success') return push
+  // In Progress / intent only after a successful push for dialing
+  if (lead.convinPushStatus !== 'success') return 'Fresh'
   return clientStatusLabels[normalizeClientStatus(lead.clientStatus)] ?? 'In Progress'
 }
 
 export function statusHint(lead: Lead): string {
+  if (lead.convinPushStatus !== 'success') {
+    if (lead.convinPushStatus === 'duplicate') return 'Duplicate — not dialed'
+    if (lead.convinPushStatus === 'error' || lead.convinPushStatus === 'skipped_invalid') {
+      return 'Upload failed — not dialed'
+    }
+    return 'Not pushed yet — select and run to dial'
+  }
   return clientStatusHints[normalizeClientStatus(lead.clientStatus)] ?? ''
 }
 
@@ -70,6 +78,7 @@ export function currentStateLabel(lead: Lead): string {
   if (!lead.phoneValid) return 'Invalid phone'
   const push = pushOutcomeLabel(lead)
   if (push && lead.convinPushStatus !== 'success') return push
+  if (lead.convinPushStatus !== 'success') return 'Fresh · not pushed'
   if (lead.currentState) return lead.currentState
   if (lead.archived) return 'Archived'
   const s = normalizeClientStatus(lead.clientStatus)
@@ -77,7 +86,7 @@ export function currentStateLabel(lead: Lead): string {
   if (s === 'moderate_intent') return 'Moderate intent'
   if (s === 'low_intent') return 'Low intent'
   if (lead.callAttempts > 0) return 'Call ongoing'
-  return 'Not attempted'
+  return 'In Progress'
 }
 
 export function channelAttemptCount(lead: Lead, channel: Channel): number {

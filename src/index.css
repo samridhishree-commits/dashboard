@@ -872,6 +872,24 @@ a {
   background: #f8fbff;
 }
 
+.lead-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.lead-filter-bar select {
+  min-width: 120px;
+  height: 32px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0 8px;
+  font-size: 12px;
+  background: #fff;
+  color: #334155;
+}
+
 .pre-run-banner {
   background: #f8fafc;
   border: 1px solid #e8eef5;

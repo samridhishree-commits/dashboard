@@ -20,11 +20,11 @@ export function pushOutcomePillClass(lead: Lead): string {
     return 'status-paused'
   }
   if (status === 'error') return 'status-failed'
+  if (status !== 'success') return 'status-draft'
   return `status-${lead.clientStatus}`
 }
 
-/** True when lead is genuinely waiting on voicebot (not a Convin push rejection). */
+/** True when lead was successfully pushed and is awaiting / in voicebot outcomes. */
 export function isAwaitingVoicebot(lead: Lead): boolean {
-  if (lead.convinPushStatus && lead.convinPushStatus !== 'success') return false
-  return true
+  return lead.convinPushStatus === 'success'
 }

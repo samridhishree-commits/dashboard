@@ -99,6 +99,9 @@ export function InstitutePage() {
   } | null>(null)
   const [pageSize] = useState(10)
   const [leadSearch, setLeadSearch] = useState('')
+  const [leadCityFilter, setLeadCityFilter] = useState('')
+  const [leadSourceFilter, setLeadSourceFilter] = useState('')
+  const [leadStatusFilter, setLeadStatusFilter] = useState('')
   const [kpiOpen, setKpiOpen] = useState<Set<'verified' | 'multi' | 'total' | 'unverified'>>(
     () => new Set(),
   )
@@ -109,6 +112,9 @@ export function InstitutePage() {
   const closeCampaign = () => {
     setActiveCampaignId(null)
     setLeadSearch('')
+    setLeadCityFilter('')
+    setLeadSourceFilter('')
+    setLeadStatusFilter('')
     setHistoryLead(null)
     setSelectedLeadIds(new Set())
   }
@@ -125,18 +131,49 @@ export function InstitutePage() {
   const visibleLeads = useMemo(() => {
     if (!activeCampaign) return []
     const q = leadSearch.trim().toLowerCase()
+    const eligibleIds = new Set(
+      leadsEligibleForConvinPush(filterConvinReadyLeads(activeCampaign.leads)).map((l) => l.id),
+    )
     return activeCampaign.leads.filter((l) => {
       if (l.archived) return false
+      if (leadCityFilter && (l.city || '').trim() !== leadCityFilter) return false
+      if (leadSourceFilter && (l.source || '').trim() !== leadSourceFilter) return false
+      if (leadStatusFilter === 'fresh' && !eligibleIds.has(l.id)) return false
+      if (leadStatusFilter === 'used' && l.convinPushStatus !== 'success') return false
+      if (
+        leadStatusFilter === 'blocked' &&
+        !(l.convinPushStatus === 'duplicate' || l.convinPushStatus === 'error')
+      ) {
+        return false
+      }
+      if (leadStatusFilter === 'invalid' && l.phoneValid) return false
       return (
         !q ||
         `${l.first_name} ${l.last_name}`.toLowerCase().includes(q) ||
         l.phone_number.includes(q) ||
         l.email.toLowerCase().includes(q) ||
         l.external_id.toLowerCase().includes(q) ||
-        (l.clientLeadId || '').toLowerCase().includes(q)
+        (l.clientLeadId || '').toLowerCase().includes(q) ||
+        (l.city || '').toLowerCase().includes(q) ||
+        (l.source || '').toLowerCase().includes(q)
       )
     })
-  }, [activeCampaign, leadSearch])
+  }, [activeCampaign, leadSearch, leadCityFilter, leadSourceFilter, leadStatusFilter])
+
+  const leadFilterOptions = useMemo(() => {
+    const active = (activeCampaign?.leads || []).filter((l) => !l.archived)
+    const cities = [...new Set(active.map((l) => (l.city || '').trim()).filter(Boolean))].sort()
+    const sources = [...new Set(active.map((l) => (l.source || '').trim()).filter(Boolean))].sort()
+    return { cities, sources }
+  }, [activeCampaign])
+
+  const freshSelectedIds = useMemo(() => {
+    if (!activeCampaign) return [] as string[]
+    const freshIds = new Set(
+      leadsEligibleForConvinPush(filterConvinReadyLeads(activeCampaign.leads)).map((l) => l.id),
+    )
+    return [...selectedLeadIds].filter((id) => freshIds.has(id))
+  }, [activeCampaign, selectedLeadIds])
 
   const archivedLeads = useMemo(() => {
     if (!activeCampaign) return []
@@ -217,9 +254,25 @@ export function InstitutePage() {
   }, [campaigns, filters])
 
   const pagedLeads = visibleLeads.slice(0, pageSize)
+  const freshVisibleLeads = useMemo(() => {
+    if (!activeCampaign) return [] as typeof visibleLeads
+    const eligible = new Set(
+      leadsEligibleForConvinPush(filterConvinReadyLeads(activeCampaign.leads)).map((l) => l.id),
+    )
+    return visibleLeads.filter((l) => eligible.has(l.id))
+  }, [activeCampaign, visibleLeads])
+
   const deletableVisible = visibleLeads.filter((l) => !leadActivity.forLead(l).locked)
-  const allDeletableSelected =
-    deletableVisible.length > 0 && deletableVisible.every((l) => selectedLeadIds.has(l.id))
+  const selectableVisible = useMemo(() => {
+    const ids = new Set([
+      ...freshVisibleLeads.map((l) => l.id),
+      ...deletableVisible.map((l) => l.id),
+    ])
+    return visibleLeads.filter((l) => ids.has(l.id))
+  }, [visibleLeads, freshVisibleLeads, deletableVisible])
+
+  const allSelectableSelected =
+    selectableVisible.length > 0 && selectableVisible.every((l) => selectedLeadIds.has(l.id))
   const selectedCount = selectedLeadIds.size
   const selectedDeletable = [...selectedLeadIds].filter((id) => {
     const lead = visibleLeads.find((l) => l.id === id)
@@ -228,7 +281,10 @@ export function InstitutePage() {
 
   const toggleLeadSelected = (leadId: string) => {
     const lead = visibleLeads.find((l) => l.id === leadId)
-    if (lead && leadActivity.forLead(lead).locked) return
+    if (!lead) return
+    const eligible = freshVisibleLeads.some((l) => l.id === leadId)
+    const locked = leadActivity.forLead(lead).locked
+    if (!eligible && locked) return
     setSelectedLeadIds((prev) => {
       const next = new Set(prev)
       if (next.has(leadId)) next.delete(leadId)
@@ -239,8 +295,8 @@ export function InstitutePage() {
 
   const toggleSelectAllVisible = () => {
     setSelectedLeadIds((prev) => {
-      if (deletableVisible.every((l) => prev.has(l.id))) return new Set()
-      return new Set(deletableVisible.map((l) => l.id))
+      if (selectableVisible.every((l) => prev.has(l.id))) return new Set()
+      return new Set(selectableVisible.map((l) => l.id))
     })
   }
 
@@ -713,7 +769,7 @@ export function InstitutePage() {
               value={campaignLeadStats.inProgress}
               icon="layers"
               color="slate"
-              tip="Call ongoing / Not attempted"
+              tip="Pushed leads still awaiting outcome"
             />
             <KpiCard
               label="Invalid phones"
@@ -736,14 +792,17 @@ export function InstitutePage() {
             </div>
           )}
 
-          <div className="table-toolbar">
+          <div className="table-toolbar" style={{ flexWrap: 'wrap', gap: 10 }}>
             <span>
               {campaignLeadStats.total} leads · {campaignLeadStats.fresh} fresh ·{' '}
               {campaignLeadStats.used} used · {campaignLeadStats.invalid} invalid
               {archivedLeads.length ? ` · ${archivedLeads.length} archived` : ''}
               {selectedCount ? ` · ${selectedCount} selected` : ''}
+              {freshSelectedIds.length
+                ? ` · ${freshSelectedIds.length} fresh ready to run`
+                : ''}
             </span>
-            <div className="stack-h">
+            <div className="lead-filter-bar">
               {selectedDeletable.length ? (
                 <button
                   type="button"
@@ -802,7 +861,42 @@ export function InstitutePage() {
                   e.target.value = ''
                 }}
               />
-              <div className="inline-search" style={{ minWidth: 200 }}>
+              <select
+                value={leadCityFilter}
+                onChange={(e) => setLeadCityFilter(e.target.value)}
+                aria-label="Filter by city"
+              >
+                <option value="">All cities</option>
+                {leadFilterOptions.cities.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={leadSourceFilter}
+                onChange={(e) => setLeadSourceFilter(e.target.value)}
+                aria-label="Filter by source"
+              >
+                <option value="">All sources</option>
+                {leadFilterOptions.sources.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={leadStatusFilter}
+                onChange={(e) => setLeadStatusFilter(e.target.value)}
+                aria-label="Filter by push status"
+              >
+                <option value="">All statuses</option>
+                <option value="fresh">Fresh</option>
+                <option value="used">In Progress / used</option>
+                <option value="blocked">Blocked</option>
+                <option value="invalid">Invalid phone</option>
+              </select>
+              <div className="inline-search" style={{ minWidth: 160 }}>
                 <Search size={14} />
                 <input
                   placeholder="Search leads…"
@@ -819,10 +913,10 @@ export function InstitutePage() {
                   <th className="lead-check-col">
                     <input
                       type="checkbox"
-                      aria-label="Select all deletable leads"
-                      checked={allDeletableSelected}
+                      aria-label="Select all visible leads"
+                      checked={allSelectableSelected}
                       onChange={toggleSelectAllVisible}
-                      disabled={!deletableVisible.length}
+                      disabled={!selectableVisible.length}
                     />
                   </th>
                   <th>Name</th>
@@ -839,12 +933,14 @@ export function InstitutePage() {
                 {pagedLeads.map((l) => {
                   const activity = leadActivity.forLead(l)
                   const locked = activity.locked
+                  const canRun = freshVisibleLeads.some((f) => f.id === l.id)
+                  const canCheck = canRun || !locked
                   return (
                   <tr
                     key={l.id}
                     className={`lead-row-click ${l.phoneValid ? '' : 'lead-row-invalid'} ${
                       selectedLeadIds.has(l.id) ? 'lead-row-selected' : ''
-                    } ${locked ? 'lead-row-locked' : ''}`}
+                    } ${locked && !canRun ? 'lead-row-locked' : ''}`}
                     onClick={() => setHistoryLead(l)}
                     title="View lead history"
                   >
@@ -857,11 +953,13 @@ export function InstitutePage() {
                         type="checkbox"
                         aria-label={`Select ${l.first_name} ${l.last_name}`}
                         checked={selectedLeadIds.has(l.id)}
-                        disabled={locked}
+                        disabled={!canCheck}
                         title={
-                          locked
-                            ? 'Active in a campaign — cannot delete'
-                            : 'Select to delete'
+                          canRun
+                            ? 'Select for Run Campaign'
+                            : locked
+                              ? 'Locked — cannot select'
+                              : 'Select to delete'
                         }
                         onChange={() => toggleLeadSelected(l.id)}
                       />
@@ -1195,6 +1293,7 @@ export function InstitutePage() {
       {leadPickOpen && activeCampaign ? (
         <RunLeadPickerModal
           leads={activeCampaign.leads}
+          initialSelectedIds={freshSelectedIds}
           onClose={() => setLeadPickOpen(false)}
           onConfirm={(ids) => {
             setPendingRunLeadIds(ids)
