@@ -30,6 +30,7 @@ import {
   isInterestedStatus,
   normalizeClientStatus,
 } from '../../utils/leads'
+import { isAwaitingVoicebot } from '../../utils/pushOutcome'
 
 /** Voicebot billing rate for client-facing cost cards */
 export const COST_PER_MINUTE_INR = 8
@@ -58,7 +59,7 @@ function metrics(c: Campaign) {
     (l) => normalizeClientStatus(l.clientStatus) === 'low_intent',
   ).length
   const inProgress = leads.filter(
-    (l) => normalizeClientStatus(l.clientStatus) === 'in_progress',
+    (l) => normalizeClientStatus(l.clientStatus) === 'in_progress' && isAwaitingVoicebot(l),
   ).length
   const interested = leads.filter((l) => isInterestedStatus(l.clientStatus)).length
   const attempted = leads.filter(

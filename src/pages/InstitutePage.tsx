@@ -19,6 +19,7 @@ import { KpiCard, KpiPopover } from '../components/ui/KpiCard'
 import { Modal } from '../components/ui/Modal'
 import { LeadActivityNudge } from '../components/leads/LeadActivityNudge'
 import { LeadHistoryModal } from '../components/leads/LeadHistoryModal'
+import { RunLeadPickerModal } from '../components/leads/RunLeadPickerModal'
 import { useApp } from '../context/AppContext'
 import { CSV_SAMPLE, voicebotTypeLabels } from '../data/mockData'
 import type { Lead, VoicebotType } from '../types'
@@ -28,9 +29,15 @@ import {
   isLeadVerified,
 } from '../utils/verification'
 import { filterConvinReadyLeads } from '../utils/leads'
-import { buildLeadActivityIndex, leadsEligibleForConvinPush } from '../utils/leadActivity'
+import {
+  buildLeadActivityIndex,
+  campaignHasSuccessfulRun,
+  classifyCampaignLeads,
+  leadsEligibleForConvinPush,
+} from '../utils/leadActivity'
 import { parseLeadsCsv } from '../utils/parseLeadsCsv'
 import { normalizeClientStatus, statusLabel } from '../utils/lifecycle'
+import { isAwaitingVoicebot, pushOutcomePillClass } from '../utils/pushOutcome'
 
 function downloadSampleCsv() {
   const blob = new Blob([CSV_SAMPLE], { type: 'text/csv;charset=utf-8;' })
@@ -60,6 +67,7 @@ export function InstitutePage() {
     runningCampaignId,
     runProgress,
     lastPushError,
+    lastPushNotice,
     clearLastPushError,
     addLeadsToCampaign,
     deleteLeads,
@@ -72,7 +80,7 @@ export function InstitutePage() {
 
   const [createOpen, setCreateOpen] = useState(false)
   const [campName, setCampName] = useState('')
-  const [campCourse, setCampCourse] = useState('Online MBA')
+  const [campCourse, setCampCourse] = useState('')
   const [parsedLeads, setParsedLeads] = useState<Lead[]>([])
   const [fileName, setFileName] = useState('')
   const [dragOver, setDragOver] = useState(false)
@@ -80,8 +88,15 @@ export function InstitutePage() {
   const addLeadsFileRef = useRef<HTMLInputElement>(null)
 
   const [runOpen, setRunOpen] = useState(false)
+  const [runningInfoOpen, setRunningInfoOpen] = useState(false)
+  const [leadPickOpen, setLeadPickOpen] = useState(false)
+  const [pendingRunLeadIds, setPendingRunLeadIds] = useState<string[] | null>(null)
   const [voiceTypeOpen, setVoiceTypeOpen] = useState(false)
   const [selectedVoiceType, setSelectedVoiceType] = useState<VoicebotType>('online')
+  const [campaignNotice, setCampaignNotice] = useState<{
+    title: string
+    summary: string
+  } | null>(null)
   const [pageSize] = useState(10)
   const [leadSearch, setLeadSearch] = useState('')
   const [kpiOpen, setKpiOpen] = useState<Set<'verified' | 'multi' | 'total' | 'unverified'>>(
@@ -141,6 +156,7 @@ export function InstitutePage() {
 
   const campaignLeadStats = useMemo(() => {
     const leads = visibleLeads
+    const buckets = classifyCampaignLeads(activeCampaign?.leads || [])
     return {
       total: leads.length,
       valid: leads.filter((l) => l.phoneValid).length,
@@ -151,11 +167,24 @@ export function InstitutePage() {
         (l) => normalizeClientStatus(l.clientStatus) === 'moderate_intent',
       ).length,
       lowIntent: leads.filter((l) => normalizeClientStatus(l.clientStatus) === 'low_intent').length,
-      inProgress: leads.filter((l) => normalizeClientStatus(l.clientStatus) === 'in_progress')
-        .length,
+      inProgress: leads.filter(
+        (l) =>
+          normalizeClientStatus(l.clientStatus) === 'in_progress' && isAwaitingVoicebot(l),
+      ).length,
       convinReady: filterConvinReadyLeads(leads).length,
+      fresh: buckets.fresh.length,
+      used: buckets.used.length,
+      blocked: buckets.blocked.length,
     }
-  }, [visibleLeads])
+  }, [visibleLeads, activeCampaign])
+
+  const showCampaignMetrics = Boolean(
+    activeCampaign && campaignHasSuccessfulRun(activeCampaign),
+  )
+  const freshLeadCount = activeCampaign
+    ? leadsEligibleForConvinPush(filterConvinReadyLeads(activeCampaign.leads)).length
+    : 0
+  const isEmptyCampaign = Boolean(activeCampaign && !activeCampaign.leads.length)
 
   const uploadStats = useMemo(() => {
     const valid = parsedLeads.filter((l) => l.phoneValid).length
@@ -524,7 +553,7 @@ export function InstitutePage() {
             <div className="empty">
               {campaigns.length
                 ? 'No campaigns match these filters.'
-                : 'No campaigns yet. Click Add Campaign to upload leads.'}
+                : 'No campaigns yet. Click Add Campaign to get started.'}
             </div>
           )}
         </div>
@@ -554,16 +583,21 @@ export function InstitutePage() {
               <button
                 type="button"
                 className="btn btn-primary"
-                disabled={
-                  !!runningCampaignId ||
-                  leadsEligibleForConvinPush(filterConvinReadyLeads(activeCampaign.leads)).length === 0
-                }
+                disabled={!!runningCampaignId || isEmptyCampaign || freshLeadCount === 0}
                 title={
-                  leadsEligibleForConvinPush(filterConvinReadyLeads(activeCampaign.leads)).length === 0
-                    ? 'Upload valid leads first (or all valid leads already pushed)'
-                    : 'Push valid leads to Convin'
+                  isEmptyCampaign
+                    ? 'Upload leads first'
+                    : freshLeadCount === 0
+                      ? 'No fresh leads to push (all used, blocked, or invalid)'
+                      : 'Push selected fresh leads to voicebot'
                 }
-                onClick={() => setRunOpen(true)}
+                onClick={() => {
+                  if (activeCampaign.status === 'running') {
+                    setRunningInfoOpen(true)
+                  } else {
+                    setRunOpen(true)
+                  }
+                }}
               >
                 <Play size={14} /> Run Campaign
               </button>
@@ -575,8 +609,82 @@ export function InstitutePage() {
             <span className={`status-pill status-${activeCampaign.status}`}>
               {activeCampaign.status}
             </span>
+            {!showCampaignMetrics ? (
+              <span> · Intent metrics unlock after at least one lead is accepted for dialing</span>
+            ) : null}
           </p>
 
+          {isEmptyCampaign ? (
+            <div className="empty-campaign-panel">
+              <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>Upload leads to continue</h3>
+              <p className="muted" style={{ margin: '0 0 14px', fontSize: 13 }}>
+                This campaign has no leads yet. Upload a CSV to unlock Run Campaign. Outcome metrics
+                appear only after a successful voicebot run.
+              </p>
+              <div style={{ marginBottom: 10 }}>
+                <button type="button" className="btn btn-success btn-sm" onClick={downloadSampleCsv}>
+                  <Download size={13} /> Sample CSV
+                </button>
+              </div>
+              <div
+                className={`dropzone ${dragOver ? 'active' : ''}`}
+                onClick={() => addLeadsFileRef.current?.click()}
+                onDragOver={(e) => {
+                  e.preventDefault()
+                  setDragOver(true)
+                }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  setDragOver(false)
+                  const f = e.dataTransfer.files?.[0]
+                  if (!f || !activeCampaign) return
+                  const reader = new FileReader()
+                  reader.onload = () => {
+                    const leads = parseLeadsCsv(
+                      String(reader.result || ''),
+                      institute?.name || 'CollegeDunia',
+                    ).map((l) => ({ ...l, course: activeCampaign.course }))
+                    addLeadsToCampaign(activeCampaign.id, leads)
+                    setCampaignNotice({
+                      title: 'Leads uploaded',
+                      summary: `${leads.length} lead(s) added to this campaign.`,
+                    })
+                  }
+                  reader.readAsText(f)
+                }}
+              >
+                <Upload size={20} />
+                <div>Drag & drop CSV or click to upload leads (required)</div>
+              </div>
+              <input
+                ref={addLeadsFileRef}
+                type="file"
+                accept=".csv,text/csv"
+                hidden
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (!f || !activeCampaign) return
+                  const reader = new FileReader()
+                  reader.onload = () => {
+                    const leads = parseLeadsCsv(
+                      String(reader.result || ''),
+                      institute?.name || 'CollegeDunia',
+                    ).map((l) => ({ ...l, course: activeCampaign.course }))
+                    addLeadsToCampaign(activeCampaign.id, leads)
+                    setCampaignNotice({
+                      title: 'Leads uploaded',
+                      summary: `${leads.length} lead(s) added to this campaign.`,
+                    })
+                  }
+                  reader.readAsText(f)
+                  e.target.value = ''
+                }}
+              />
+            </div>
+          ) : (
+            <>
+          {showCampaignMetrics ? (
           <div className="kpi-row" style={{ marginBottom: 12 }}>
             <KpiCard label="Total leads" value={campaignLeadStats.total} icon="users" color="blue" />
             <KpiCard
@@ -612,14 +720,26 @@ export function InstitutePage() {
               value={campaignLeadStats.invalid}
               icon="unverified"
               color="red"
-              tip="Stored in CRM · never sent to Convin"
+              tip="Stored in CRM · never dialed"
             />
           </div>
+          ) : (
+            <div className="pre-run-banner" style={{ marginBottom: 12 }}>
+              <p style={{ margin: 0, fontSize: 13 }}>
+                <strong>{campaignLeadStats.total}</strong> leads in CRM ·{' '}
+                <strong>{campaignLeadStats.fresh}</strong> fresh ·{' '}
+                <strong>{campaignLeadStats.used}</strong> already used ·{' '}
+                <strong>{campaignLeadStats.blocked}</strong> blocked ·{' '}
+                <strong>{campaignLeadStats.invalid}</strong> invalid. Run Campaign to push fresh
+                leads — intent cards unlock after a successful run.
+              </p>
+            </div>
+          )}
 
           <div className="table-toolbar">
             <span>
-              {campaignLeadStats.total} leads · {campaignLeadStats.convinReady} Convin-ready ·{' '}
-              {campaignLeadStats.invalid} invalid
+              {campaignLeadStats.total} leads · {campaignLeadStats.fresh} fresh ·{' '}
+              {campaignLeadStats.used} used · {campaignLeadStats.invalid} invalid
               {archivedLeads.length ? ` · ${archivedLeads.length} archived` : ''}
               {selectedCount ? ` · ${selectedCount} selected` : ''}
             </span>
@@ -673,6 +793,10 @@ export function InstitutePage() {
                       institute?.name || 'CollegeDunia',
                     ).map((l) => ({ ...l, course: activeCampaign.course }))
                     addLeadsToCampaign(activeCampaign.id, leads)
+                    setCampaignNotice({
+                      title: 'Leads uploaded',
+                      summary: `${leads.length} lead(s) added to this campaign.`,
+                    })
                   }
                   reader.readAsText(f)
                   e.target.value = ''
@@ -765,7 +889,7 @@ export function InstitutePage() {
                       )}
                     </td>
                     <td>
-                      <span className={`status-pill status-${l.clientStatus}`}>
+                      <span className={`status-pill ${pushOutcomePillClass(l)}`}>
                         {statusLabel(l)}
                       </span>
                     </td>
@@ -854,6 +978,8 @@ export function InstitutePage() {
               </div>
             </div>
           ) : null}
+            </>
+          )}
         </Modal>
       ) : null}
 
@@ -867,12 +993,14 @@ export function InstitutePage() {
 
       {createOpen ? (
         <Modal
-          title="Add Campaign · Bulk Upload Leads"
+          title="Add Campaign"
           large
           onClose={() => {
             setCreateOpen(false)
             setParsedLeads([])
             setFileName('')
+            setCampName('')
+            setCampCourse('')
           }}
           footer={
             <>
@@ -882,35 +1010,56 @@ export function InstitutePage() {
               <button
                 type="button"
                 className="btn btn-primary"
-                disabled={!campName.trim() || !parsedLeads.length}
+                disabled={!campName.trim() || !campCourse.trim()}
                 onClick={() => {
                   const campaign = createCampaign(
                     instituteId,
                     campName.trim(),
-                    campCourse,
+                    campCourse.trim(),
                     parsedLeads,
                     'voicebot',
                   )
                   openCampaignTab(campaign)
                   setCreateOpen(false)
+                  setCampaignNotice(
+                    parsedLeads.length
+                      ? {
+                          title: 'Campaign created',
+                          summary: `Campaign created and ${parsedLeads.length} lead(s) added.`,
+                        }
+                      : {
+                          title: 'Campaign created',
+                          summary: 'Campaign created. Upload leads to continue.',
+                        },
+                  )
                   setParsedLeads([])
                   setFileName('')
                   setCampName('')
+                  setCampCourse('')
                 }}
               >
-                Create & Open
+                Create campaign
               </button>
             </>
           }
         >
           <div className="form-grid" style={{ marginBottom: 10 }}>
             <div className="field">
-              <label>Campaign name</label>
-              <input value={campName} onChange={(e) => setCampName(e.target.value)} />
+              <label>
+                Campaign name <span className="req">*</span>
+              </label>
+              <input
+                value={campName}
+                onChange={(e) => setCampName(e.target.value)}
+                placeholder="e.g. B.Tech August batch"
+              />
             </div>
             <div className="field">
-              <label>Course</label>
+              <label>
+                Course to run <span className="req">*</span>
+              </label>
               <select value={campCourse} onChange={(e) => setCampCourse(e.target.value)}>
+                <option value="">Select course</option>
                 <option>Online MBA</option>
                 <option>B.Tech</option>
                 <option>MBA</option>
@@ -919,19 +1068,12 @@ export function InstitutePage() {
             </div>
           </div>
           <div className="howto">
-            <h3>How to bulk upload leads</h3>
+            <h3>Lead upload (optional)</h3>
             <ol>
-              <li>Download the sample CSV template</li>
-              <li>Fill lead data (phone_number* required)</li>
-              <li>Save as CSV and upload</li>
+              <li>You can create the campaign now and upload leads later</li>
+              <li>Or upload a CSV here before creating</li>
+              <li>phone_number* is required in the CSV when you do upload</li>
             </ol>
-            <hr />
-            <p style={{ margin: 0 }}>
-              Fields: phone_number* (validated), optional lead_id/external_id (shown as Client Lead
-              ID only), first_name / name, email, city, state, course. We always mint our own
-              external_id (e.g. JU07082026001482) for Convin. Invalid phones stay in CRM but are
-              never sent.
-            </p>
           </div>
           <div style={{ margin: '12px 0' }}>
             <button type="button" className="btn btn-success" onClick={downloadSampleCsv}>
@@ -964,14 +1106,11 @@ export function InstitutePage() {
             }}
           >
             <Upload size={20} />
-            <div>{fileName || 'Drag & drop CSV or click to browse'}</div>
+            <div>{fileName || 'Optional: drag & drop CSV or click to browse'}</div>
             {parsedLeads.length ? (
               <strong>
                 {parsedLeads.length} stored · {uploadStats.valid} valid · {uploadStats.invalid}{' '}
-                invalid · {parsedLeads.length} CRM external IDs minted
-                {uploadStats.withClientId
-                  ? ` · ${uploadStats.withClientId} client lead IDs kept`
-                  : ''}
+                invalid
               </strong>
             ) : null}
           </div>
@@ -1043,7 +1182,7 @@ export function InstitutePage() {
               className="choice-card"
               onClick={() => {
                 setRunOpen(false)
-                setVoiceTypeOpen(true)
+                setLeadPickOpen(true)
               }}
             >
               <Mic size={20} color="#2f6fed" />
@@ -1053,13 +1192,35 @@ export function InstitutePage() {
         </Modal>
       ) : null}
 
+      {leadPickOpen && activeCampaign ? (
+        <RunLeadPickerModal
+          leads={activeCampaign.leads}
+          onClose={() => setLeadPickOpen(false)}
+          onConfirm={(ids) => {
+            setPendingRunLeadIds(ids)
+            setLeadPickOpen(false)
+            setVoiceTypeOpen(true)
+          }}
+        />
+      ) : null}
+
       {voiceTypeOpen ? (
         <Modal
           title="Select Voicebot type"
-          onClose={() => setVoiceTypeOpen(false)}
+          onClose={() => {
+            setVoiceTypeOpen(false)
+            setPendingRunLeadIds(null)
+          }}
           footer={
             <>
-              <button type="button" className="btn btn-ghost" onClick={() => setVoiceTypeOpen(false)}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  setVoiceTypeOpen(false)
+                  setPendingRunLeadIds(null)
+                }}
+              >
                 Cancel
               </button>
               <button
@@ -1067,32 +1228,34 @@ export function InstitutePage() {
                 className="btn btn-primary"
                 disabled={
                   !activeCampaign ||
-                  leadsEligibleForConvinPush(filterConvinReadyLeads(activeCampaign.leads)).length === 0
+                  !(pendingRunLeadIds?.length || freshLeadCount)
                 }
                 onClick={() => {
                   if (activeCampaign) {
-                    startVoicebotRun(activeCampaign.id, selectedVoiceType)
+                    void startVoicebotRun(
+                      activeCampaign.id,
+                      selectedVoiceType,
+                      pendingRunLeadIds || undefined,
+                    )
                     setVoiceTypeOpen(false)
+                    setPendingRunLeadIds(null)
                     navigate(`/institute/${instituteId}/voicebot`)
                   }
                 }}
               >
                 Confirm & Run
+                {pendingRunLeadIds?.length ? ` (${pendingRunLeadIds.length})` : ''}
               </button>
             </>
           }
         >
           {activeCampaign ? (
-            <p className="convin-push-note">
-              Convin will receive{' '}
-              <strong>
-                {leadsEligibleForConvinPush(filterConvinReadyLeads(activeCampaign.leads)).length}
-              </strong>{' '}
-              new leads with <code>external_id</code>, <code>phone_number</code>, and <code>name</code>
-              . Already-pushed leads are skipped.
-              only.
+            <p className="push-run-note">
+              Voicebot will receive{' '}
+              <strong>{pendingRunLeadIds?.length ?? freshLeadCount}</strong> selected fresh lead(s).
+              Already-used and duplicate/error leads are never re-sent.
               {activeCampaign.leads.filter((l) => !l.phoneValid).length > 0
-                ? ` ${activeCampaign.leads.filter((l) => !l.phoneValid).length} invalid phone(s) stay in CRM and will not be sent.`
+                ? ` ${activeCampaign.leads.filter((l) => !l.phoneValid).length} invalid phone(s) stay in CRM.`
                 : null}
             </p>
           ) : null}
@@ -1121,7 +1284,7 @@ export function InstitutePage() {
       {runningCampaignId ? (
         <Modal title="Uploading leads" onClose={() => undefined}>
           <p style={{ marginTop: 0 }}>
-            Uploading valid leads to Convin (campaign already running)
+            Uploading valid leads
             {activeCampaign?.voicebotType
               ? ` · ${voicebotTypeLabels[activeCampaign.voicebotType]}`
               : ''}
@@ -1143,17 +1306,75 @@ export function InstitutePage() {
         </Modal>
       ) : null}
 
-      {!runningCampaignId && lastPushError ? (
-        <Modal title="Notice" onClose={clearLastPushError}>
-          <p style={{ marginTop: 0 }}>{lastPushError}</p>
-          <p className="muted" style={{ fontSize: 13 }}>
-            Leads that uploaded stay In Progress until webhook / fetch updates status.
+      {runningInfoOpen && activeCampaign ? (
+        <Modal
+          title="Campaign already running"
+          onClose={() => setRunningInfoOpen(false)}
+          footer={
+            <>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setRunningInfoOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => {
+                  setRunningInfoOpen(false)
+                  setRunOpen(true)
+                }}
+              >
+                Continue
+              </button>
+            </>
+          }
+        >
+          <p style={{ marginTop: 0 }}>
+            This voicebot campaign is already running. You can still upload newly added leads —
+            Upload responses (success, duplicate number/ID, invalid phone) will show after the run.
           </p>
-          <div className="modal-actions">
-            <button type="button" className="btn primary" onClick={clearLastPushError}>
+        </Modal>
+      ) : null}
+
+      {campaignNotice ? (
+        <Modal
+          title={campaignNotice.title}
+          onClose={() => setCampaignNotice(null)}
+          footer={
+            <button type="button" className="btn btn-primary" onClick={() => setCampaignNotice(null)}>
               OK
             </button>
-          </div>
+          }
+        >
+          <p style={{ marginTop: 0 }}>{campaignNotice.summary}</p>
+        </Modal>
+      ) : null}
+
+      {!runningCampaignId && (lastPushNotice || lastPushError) ? (
+        <Modal
+          title={lastPushNotice?.title || 'Notice'}
+          onClose={clearLastPushError}
+          footer={
+            <button type="button" className="btn btn-primary" onClick={clearLastPushError}>
+              OK
+            </button>
+          }
+        >
+          <p style={{ marginTop: 0 }}>{lastPushNotice?.summary || lastPushError}</p>
+          {lastPushNotice?.lines?.length ? (
+            <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 13, lineHeight: 1.5 }}>
+              {lastPushNotice.lines.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          ) : null}
+          <p className="muted" style={{ fontSize: 13, marginBottom: 0 }}>
+            Only leads accepted for dialing stay In Progress. Duplicates and errors are shown on the lead
+            row — we never show where they already exist.
+          </p>
         </Modal>
       ) : null}
     </AppShell>

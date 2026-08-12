@@ -5,6 +5,7 @@ import { AppShell, PageCrumb } from '../layout/AppShell'
 import { CampaignCard } from './CampaignCard'
 import { CampaignAnalytics } from './CampaignAnalytics'
 import { LeadLevelView } from './LeadLevelView'
+import { RunLeadPickerModal } from '../leads/RunLeadPickerModal'
 import { KpiCard } from '../ui/KpiCard'
 import { Modal } from '../ui/Modal'
 import { useApp } from '../../context/AppContext'
@@ -43,6 +44,7 @@ export function ChannelWorkspace({ channel }: { channel: Channel }) {
     runningCampaignId,
     runProgress,
     lastPushError,
+    lastPushNotice,
     clearLastPushError,
   } = useApp()
 
@@ -55,6 +57,9 @@ export function ChannelWorkspace({ channel }: { channel: Channel }) {
   const [createOpen, setCreateOpen] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [voiceTypeOpen, setVoiceTypeOpen] = useState(false)
+  const [runningInfoOpen, setRunningInfoOpen] = useState(false)
+  const [leadPickOpen, setLeadPickOpen] = useState(false)
+  const [pendingRunLeadIds, setPendingRunLeadIds] = useState<string[] | null>(null)
   const [selectedVoiceType, setSelectedVoiceType] = useState<VoicebotType>('btech')
   const [campName, setCampName] = useState('')
   const [campCourse, setCampCourse] = useState('Online MBA')
@@ -203,11 +208,14 @@ export function ChannelWorkspace({ channel }: { channel: Channel }) {
                   title={
                     pendingPush === 0
                       ? 'Upload valid leads first (or all valid leads already pushed)'
-                      : 'Push valid leads to Convin'
+                      : 'Push valid leads to voicebot'
                   }
                   onClick={() => {
-                    setSelectedVoiceType(selected.voicebotType || 'btech')
-                    setVoiceTypeOpen(true)
+                    if (selected.status === 'running') {
+                      setRunningInfoOpen(true)
+                    } else {
+                      setLeadPickOpen(true)
+                    }
                   }}
                 >
                   <Play size={14} /> Run Campaign
@@ -295,7 +303,7 @@ export function ChannelWorkspace({ channel }: { channel: Channel }) {
           >
             <p className="muted" style={{ marginTop: 0 }}>
               Adds leads into <strong>{selected.name}</strong> ({selected.status}). Invalid phones
-              stay in CRM and are never sent to Convin.
+              stay in CRM and are never dialed.
             </p>
             <div className="create-upload-block">
               <div className="create-upload-head">
@@ -345,11 +353,30 @@ export function ChannelWorkspace({ channel }: { channel: Channel }) {
           </Modal>
         ) : null}
 
+        {leadPickOpen && selected && channel === 'voicebot' ? (
+          <RunLeadPickerModal
+            leads={selected.leads}
+            onClose={() => setLeadPickOpen(false)}
+            onConfirm={(ids) => {
+              setPendingRunLeadIds(ids)
+              setLeadPickOpen(false)
+              setSelectedVoiceType(selected.voicebotType || 'btech')
+              setVoiceTypeOpen(true)
+            }}
+          />
+        ) : null}
+
         {voiceTypeOpen && channel === 'voicebot' ? (
-          <Modal title="Run Campaign · Voicebot type" onClose={() => setVoiceTypeOpen(false)}>
+          <Modal
+            title="Run Campaign · Voicebot type"
+            onClose={() => {
+              setVoiceTypeOpen(false)
+              setPendingRunLeadIds(null)
+            }}
+          >
             <p className="muted" style={{ marginTop: 0 }}>
-              Pushes {pendingPush} valid lead(s) to Convin (already-running campaign). Invalid numbers
-              are skipped.
+              Pushes {pendingRunLeadIds?.length ?? pendingPush} selected fresh lead(s) to the voicebot.
+              Invalid / already-used leads are skipped.
             </p>
             <div className="type-grid">
               {(
@@ -371,18 +398,32 @@ export function ChannelWorkspace({ channel }: { channel: Channel }) {
               ))}
             </div>
             <div className="modal-actions" style={{ marginTop: 16 }}>
-              <button type="button" className="btn btn-ghost" onClick={() => setVoiceTypeOpen(false)}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  setVoiceTypeOpen(false)
+                  setPendingRunLeadIds(null)
+                }}
+              >
                 Cancel
               </button>
               <button
                 type="button"
                 className="btn btn-primary"
+                disabled={!(pendingRunLeadIds?.length || pendingPush)}
                 onClick={() => {
                   setVoiceTypeOpen(false)
-                  void startVoicebotRun(selected.id, selectedVoiceType)
+                  void startVoicebotRun(
+                    selected.id,
+                    selectedVoiceType,
+                    pendingRunLeadIds || undefined,
+                  )
+                  setPendingRunLeadIds(null)
                 }}
               >
-                <Play size={14} /> Push to Convin
+                <Play size={14} /> Push to voicebot
+                {pendingRunLeadIds?.length ? ` (${pendingRunLeadIds.length})` : ''}
               </button>
             </div>
           </Modal>
@@ -391,7 +432,7 @@ export function ChannelWorkspace({ channel }: { channel: Channel }) {
         {runningCampaignId === selected.id ? (
           <Modal title="Uploading leads" onClose={() => undefined}>
             <p style={{ marginTop: 0 }}>
-              Uploading valid leads to Convin
+              Uploading valid leads
               {selected.voicebotType
                 ? ` · ${voicebotTypeLabels[selected.voicebotType]}`
                 : ''}
@@ -407,14 +448,61 @@ export function ChannelWorkspace({ channel }: { channel: Channel }) {
           </Modal>
         ) : null}
 
-        {!runningCampaignId && lastPushError ? (
-          <Modal title="Notice" onClose={clearLastPushError}>
-            <p style={{ marginTop: 0 }}>{lastPushError}</p>
-            <div className="modal-actions">
+        {runningInfoOpen ? (
+          <Modal
+            title="Campaign already running"
+            onClose={() => setRunningInfoOpen(false)}
+            footer={
+              <>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => setRunningInfoOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => {
+                    setRunningInfoOpen(false)
+                    setLeadPickOpen(true)
+                  }}
+                >
+                  Continue
+                </button>
+              </>
+            }
+          >
+            <p style={{ marginTop: 0 }}>
+              This voicebot campaign is already running. You can still upload newly added leads —
+              Each lead will return success, duplicate number/ID, or invalid phone.
+            </p>
+          </Modal>
+        ) : null}
+
+        {!runningCampaignId && (lastPushNotice || lastPushError) ? (
+          <Modal
+            title={lastPushNotice?.title || 'Notice'}
+            onClose={clearLastPushError}
+            footer={
               <button type="button" className="btn btn-primary" onClick={clearLastPushError}>
                 OK
               </button>
-            </div>
+            }
+          >
+            <p style={{ marginTop: 0 }}>{lastPushNotice?.summary || lastPushError}</p>
+            {lastPushNotice?.lines?.length ? (
+              <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 13, lineHeight: 1.5 }}>
+                {lastPushNotice.lines.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            ) : null}
+            <p className="muted" style={{ fontSize: 13, marginBottom: 0 }}>
+              Only leads accepted for dialing stay In Progress. Duplicate ID/number and other errors are
+              shown without where they already exist.
+            </p>
           </Modal>
         ) : null}
       </AppShell>
@@ -523,7 +611,7 @@ export function ChannelWorkspace({ channel }: { channel: Channel }) {
             value={poolStats.invalid}
             icon="unverified"
             color="red"
-            tip="Never sent to Convin"
+            tip="Never dialed"
           />
         </div>
       </div>

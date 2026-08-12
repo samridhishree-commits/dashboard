@@ -68,6 +68,13 @@ export interface Lead {
   convinLeadId?: string
   /** Last push outcome to Convin: success | duplicate | error | skipped_invalid */
   convinPushStatus?: 'success' | 'duplicate' | 'error' | 'skipped_invalid'
+  /** Friendly code from Convin response (no where-details). */
+  convinPushCode?:
+    | 'success'
+    | 'duplicate_phone'
+    | 'duplicate_external_id'
+    | 'invalid_phone'
+    | 'error'
   convinPushMessage?: string
   /** Optional ID from client sheet (lead_id / external_id / etc.) — display only. */
   clientLeadId?: string

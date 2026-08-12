@@ -21,6 +21,7 @@ import {
   upsertCrmCampaign,
 } from './crm.js'
 import { addLead, archiveLead, fetchLeads, getCampaignId } from './convin.js'
+import { classifyConvinAddResponse } from './convinPushResult.js'
 import { isEncryptionEnabled } from './crypto.js'
 import { dbPing, initDb } from './db.js'
 import { renderDocsHtml } from './docs.js'
@@ -102,28 +103,32 @@ app.post('/api/leads/push', async (req, res) => {
           last_name: lead.last_name,
         })
 
-        const status = data?.status || (httpStatus === 409 ? 'duplicate' : 'error')
-        if (status === 'success' || httpStatus === 201) {
+        const classified = classifyConvinAddResponse(data, httpStatus)
+        if (classified.status === 'success') {
           success += 1
-        } else if (status === 'duplicate' || httpStatus === 409) {
+        } else if (classified.status === 'duplicate') {
           duplicate += 1
         } else {
           failed += 1
         }
 
+        // Source of truth = Convin response, sanitized (no "where" / existing_* details)
         results.push({
           external_id,
+          phone_number,
           httpStatus,
-          status,
-          lead_id: data?.lead_id ?? null,
-          message: data?.message ?? null,
-          data,
+          status: classified.status,
+          code: classified.code,
+          lead_id: classified.lead_id,
+          message: classified.message,
         })
       } catch (err) {
         failed += 1
         results.push({
           external_id,
+          phone_number,
           status: 'error',
+          code: 'error',
           message: err instanceof Error ? err.message : 'Push failed',
         })
       }

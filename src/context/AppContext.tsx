@@ -41,6 +41,13 @@ const defaultFilters: GlobalFilters = {
   status: 'All',
 }
 
+export type PushNotice = {
+  title: string
+  summary: string
+  lines?: string[]
+  kind?: 'info' | 'error' | 'results'
+}
+
 interface AppState {
   institutes: Institute[]
   campaigns: Campaign[]
@@ -68,11 +75,16 @@ interface AppState {
   closeTab: (tabId: string) => void
   setActiveTab: (tabId: string | null) => void
   setActiveCampaignId: (id: string | null) => void
-  startVoicebotRun: (campaignId: string, type: VoicebotType) => Promise<void>
+  startVoicebotRun: (
+    campaignId: string,
+    type: VoicebotType,
+    leadIds?: string[],
+  ) => Promise<void>
   archiveLead: (campaignId: string, leadId: string) => Promise<void>
   deleteLeads: (campaignId: string, leadIds: string[]) => Promise<void>
   setCampaignStatus: (campaignId: string, status: CampaignStatus) => void
   lastPushError: string | null
+  lastPushNotice: PushNotice | null
   clearLastPushError: () => void
 }
 
@@ -92,8 +104,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [runningCampaignId, setRunningCampaignId] = useState<string | null>(null)
   const [runProgress, setRunProgress] = useState(0)
   const [lastPushError, setLastPushError] = useState<string | null>(null)
+  const [lastPushNotice, setLastPushNotice] = useState<PushNotice | null>(null)
 
-  const clearLastPushError = useCallback(() => setLastPushError(null), [])
+  const clearLastPushError = useCallback(() => {
+    setLastPushError(null)
+    setLastPushNotice(null)
+  }, [])
+
+  const showNotice = useCallback((notice: PushNotice) => {
+    setLastPushNotice(notice)
+    setLastPushError(notice.summary)
+  }, [])
 
   // Restore OUR CRM campaigns/leads from Postgres (camp-* ids). Never uses Convin campaign_id.
   // Re-poll so webhook outcomes (status, recordings, minutes) appear without a full refresh.
@@ -230,23 +251,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [openTabs],
   )
 
-  const startVoicebotRun = useCallback(async (campaignId: string, type: VoicebotType) => {
+  const startVoicebotRun = useCallback(async (
+    campaignId: string,
+    type: VoicebotType,
+    leadIds?: string[],
+  ) => {
     const campaign = campaigns.find((c) => c.id === campaignId)
     if (!campaign) return
 
-    const ready = leadsEligibleForConvinPush(filterConvinReadyLeads(campaign.leads))
+    const wasAlreadyRunning = campaign.status === 'running'
+
+    const eligible = leadsEligibleForConvinPush(filterConvinReadyLeads(campaign.leads))
+    const idSet = leadIds?.length ? new Set(leadIds) : null
+    const ready = idSet ? eligible.filter((l) => idSet.has(l.id)) : eligible
     const payload = ready
       .map((l) => toConvinPayload(l))
       .filter((p): p is NonNullable<typeof p> => p !== null)
     const skippedInvalid = campaign.leads.filter((l) => !l.archived && !l.phoneValid).length
 
     setLastPushError(null)
+    setLastPushNotice(null)
+
+    // Don't flip to running until Convin accepts at least one lead
     setCampaigns((prev) =>
       prev.map((c) =>
         c.id === campaignId
           ? {
               ...c,
-              status: 'running' as CampaignStatus,
               channel: 'voicebot' as Channel,
               voicebotType: type,
               lastConvinPush: {
@@ -263,23 +294,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setRunProgress(8)
 
     if (!payload.length) {
-      const already =
-        filterConvinReadyLeads(campaign.leads).filter(
-          (l) => l.convinPushStatus === 'success' || l.convinPushStatus === 'duplicate',
-        ).length > 0
+      const alreadySuccess =
+        filterConvinReadyLeads(campaign.leads).filter((l) => l.convinPushStatus === 'success')
+          .length > 0
       setCampaigns((prev) =>
         prev.map((c) =>
           c.id === campaignId
             ? {
                 ...c,
-                status: (already ? 'running' : c.leads.length ? 'ready' : 'draft') as CampaignStatus,
+                status: (alreadySuccess || wasAlreadyRunning
+                  ? 'running'
+                  : c.leads.length
+                    ? 'ready'
+                    : 'draft') as CampaignStatus,
                 leads: c.leads.map((l) =>
                   !l.phoneValid
                     ? {
                         ...l,
-                        clientStatus: 'in_progress' as ClientLeadStatus,
-                        currentState: 'Invalid phone · not sent to Convin',
+                        currentState: 'Invalid phone · not dialed',
                         convinPushStatus: 'skipped_invalid' as const,
+                        convinPushCode: 'invalid_phone' as const,
+                        convinPushMessage: 'Invalid phone number',
                         voicebotNote: 'Skipped — invalid phone number.',
                       }
                     : l,
@@ -288,11 +323,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
             : c,
         ),
       )
-      setLastPushError(
-        already
-          ? 'All valid leads were already uploaded to Convin. New uploads will push only leads that were never sent.'
-          : 'No valid leads to upload to Convin.',
-      )
+      showNotice({
+        kind: 'info',
+        title: wasAlreadyRunning ? 'Campaign already running' : 'Nothing to upload',
+        summary: wasAlreadyRunning
+          ? 'This voicebot campaign is already running. No new valid leads were left to upload.'
+          : alreadySuccess
+            ? 'All valid leads were already uploaded for dialing.'
+            : 'No valid leads to upload for dialing.',
+        lines: skippedInvalid
+          ? [`${skippedInvalid} lead(s) have invalid phone numbers and were not sent.`]
+          : undefined,
+      })
       setRunProgress(100)
       window.setTimeout(() => {
         setRunningCampaignId(null)
@@ -301,7 +343,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return
     }
 
-    // Indeterminate progress while backend pushes sequentially
     const tick = window.setInterval(() => {
       setRunProgress((p) => (p >= 90 ? 90 : p + 4))
     }, 400)
@@ -319,51 +360,80 @@ export function AppProvider({ children }: { children: ReactNode }) {
         res.results.map((r) => [r.external_id || '', r] as const),
       )
 
+      const { success, duplicate, failed } = res.totals
+      const nextStatus: CampaignStatus =
+        success > 0 || wasAlreadyRunning
+          ? 'running'
+          : failed + duplicate > 0
+            ? 'failed'
+            : campaign.status === 'draft'
+              ? 'ready'
+              : campaign.status
+
       setCampaigns((prev) =>
         prev.map((c) =>
           c.id === campaignId
             ? {
                 ...c,
-                status: 'running' as CampaignStatus,
+                status: nextStatus,
                 leads: c.leads.map((l) => {
                   if (!l.phoneValid) {
                     return {
                       ...l,
-                      clientStatus: 'in_progress' as ClientLeadStatus,
-                      currentState: 'Invalid phone · not sent to Convin',
+                      currentState: 'Invalid phone · not dialed',
                       convinPushStatus: 'skipped_invalid' as const,
+                      convinPushCode: 'invalid_phone' as const,
+                      convinPushMessage: 'Invalid phone number',
                       voicebotNote: 'Skipped — invalid phone number.',
                     }
                   }
                   const row = byExternal.get(l.external_id)
-                  if (!row) {
+                  if (!row) return l
+
+                  const code = (row.code ||
+                    (row.status === 'duplicate'
+                      ? 'duplicate_phone'
+                      : row.status === 'success'
+                        ? 'success'
+                        : 'error')) as Lead['convinPushCode']
+
+                  if (row.status === 'success') {
                     return {
                       ...l,
+                      convinLeadId: row.lead_id || l.convinLeadId,
+                      convinPushStatus: 'success' as const,
+                      convinPushCode: 'success' as const,
+                      convinPushMessage: row.message || 'Lead uploaded for dialing',
                       clientStatus: 'in_progress' as ClientLeadStatus,
-                      currentState: 'Not sent',
+                      currentState: 'Uploaded · In Progress',
+                      voicebotNote:
+                        'Lead uploaded for dialing. Outcomes will sync as calls complete.',
+                      lastActivity: new Date().toISOString(),
                     }
                   }
-                  const ok = row.status === 'success' || row.status === 'duplicate'
+
+                  const friendly =
+                    code === 'duplicate_external_id'
+                      ? 'Duplicate external ID'
+                      : code === 'duplicate_phone' || row.status === 'duplicate'
+                        ? 'Duplicate phone number'
+                        : code === 'invalid_phone'
+                          ? 'Invalid phone number'
+                          : row.message || 'Upload failed'
+
                   return {
                     ...l,
-                    convinLeadId: row.lead_id || l.convinLeadId,
                     convinPushStatus:
-                      row.status === 'duplicate'
-                        ? ('duplicate' as const)
-                        : row.status === 'success'
-                          ? ('success' as const)
-                          : ('error' as const),
-                    convinPushMessage: row.message || undefined,
-                    clientStatus: 'in_progress' as ClientLeadStatus,
-                    currentState: ok
-                      ? row.status === 'duplicate'
-                        ? 'Uploaded (already in Convin)'
-                        : 'Uploaded to Convin · In Progress'
-                      : `Upload failed: ${row.message || 'error'}`,
-                    voicebotNote: ok
-                      ? 'Lead uploaded to Convin. Outcomes will sync via webhook / fetch.'
-                      : row.message || 'Convin upload failed.',
-                    lastActivity: new Date().toLocaleString(),
+                      row.status === 'duplicate' ? ('duplicate' as const) : ('error' as const),
+                    convinPushCode: code,
+                    convinPushMessage: friendly,
+                    // Do NOT mark as In Progress — Convin did not accept this lead for calling
+                    currentState: friendly,
+                    phoneValid: code === 'invalid_phone' ? false : l.phoneValid,
+                    phoneInvalidReason:
+                      code === 'invalid_phone' ? 'Invalid phone number' : l.phoneInvalidReason,
+                    voicebotNote: friendly,
+                    lastActivity: new Date().toISOString(),
                   }
                 }),
               }
@@ -371,21 +441,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ),
       )
 
-      const { success, duplicate, failed } = res.totals
-      if (failed > 0 && success + duplicate === 0) {
-        setLastPushError(`All uploads failed (${failed}). Check API credentials / encryption.`)
-        setCampaigns((prev) =>
-          prev.map((c) =>
-            c.id === campaignId ? { ...c, status: 'failed' as CampaignStatus } : c,
-          ),
-        )
-      } else if (failed > 0) {
-        setLastPushError(
-          `Uploaded ${success + duplicate}/${res.totals.total} (${duplicate} duplicate, ${failed} failed).`,
-        )
+      const lines: string[] = []
+      const dupPhone = res.results.filter(
+        (r) => r.code === 'duplicate_phone' || (r.status === 'duplicate' && r.code !== 'duplicate_external_id'),
+      ).length
+      const dupExt = res.results.filter((r) => r.code === 'duplicate_external_id').length
+      const invalid = res.results.filter((r) => r.code === 'invalid_phone').length
+      const otherFail = res.results.filter(
+        (r) => r.status === 'error' && r.code !== 'invalid_phone',
+      ).length
+
+      if (success) lines.push(`${success} lead(s) uploaded successfully`)
+      if (dupPhone) lines.push(`${dupPhone} duplicate phone number(s)`)
+      if (dupExt) lines.push(`${dupExt} duplicate external ID(s)`)
+      if (invalid) lines.push(`${invalid} invalid phone number(s)`)
+      if (otherFail) lines.push(`${otherFail} upload failed`)
+      if (skippedInvalid) lines.push(`${skippedInvalid} invalid phone(s) skipped before upload`)
+      if (wasAlreadyRunning) {
+        lines.unshift('This voicebot campaign was already running.')
       }
 
-      // Persist push outcomes under OUR campaign id (Convin push API unchanged above)
+      const title =
+        success > 0 && duplicate + failed === 0
+          ? wasAlreadyRunning
+            ? 'Campaign already running'
+            : 'Upload complete'
+          : success > 0
+            ? 'Upload finished with issues'
+            : 'Upload failed'
+
+      showNotice({
+        kind: success > 0 && failed + duplicate === 0 ? 'results' : 'error',
+        title,
+        summary:
+          success > 0
+            ? `${success} uploaded · ${duplicate} duplicate · ${failed} failed`
+            : 'No leads were accepted for dialing. See details below.',
+        lines,
+      })
+
       void saveCrmPushResults(campaignId, {
         results: res.results,
         totals: res.totals,
@@ -393,17 +487,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
         skippedInvalid,
         voicebotType: type,
         channel: 'voicebot',
-        status:
-          failed > 0 && success + duplicate === 0
-            ? 'failed'
-            : 'running',
+        status: nextStatus,
       }).catch((err) => console.warn('[crm] save push results failed', err))
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Upload failed'
-      setLastPushError(msg)
+      showNotice({
+        kind: 'error',
+        title: 'Upload failed',
+        summary: msg,
+      })
       setCampaigns((prev) =>
         prev.map((c) =>
-          c.id === campaignId ? { ...c, status: 'failed' as CampaignStatus } : c,
+          c.id === campaignId
+            ? {
+                ...c,
+                status: (wasAlreadyRunning ? 'running' : 'failed') as CampaignStatus,
+              }
+            : c,
         ),
       )
     } finally {
@@ -414,7 +514,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setRunProgress(0)
       }, 700)
     }
-  }, [campaigns])
+  }, [campaigns, showNotice])
 
   const archiveLead = useCallback(async (campaignId: string, leadId: string) => {
     const campaign = campaigns.find((c) => c.id === campaignId)
@@ -463,7 +563,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setLastPushError(
         err instanceof Error
           ? `Archive failed: ${err.message}`
-          : 'Archive failed on Convin',
+          : 'Archive failed',
       )
     }
   }, [campaigns])
@@ -561,6 +661,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       runningCampaignId,
       runProgress,
       lastPushError,
+      lastPushNotice,
       clearLastPushError,
       setFilters,
       resetFilters,
@@ -589,6 +690,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       runningCampaignId,
       runProgress,
       lastPushError,
+      lastPushNotice,
       clearLastPushError,
       setFilters,
       resetFilters,

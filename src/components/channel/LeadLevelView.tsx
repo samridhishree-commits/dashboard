@@ -2,6 +2,7 @@ import { Fragment, useMemo, useState } from 'react'
 import { Archive, Pause, Phone, Play, Search } from 'lucide-react'
 import type { Campaign, Channel, Lead } from '../../types'
 import { clientStatusHints, currentStateLabel, statusLabel } from '../../utils/lifecycle'
+import { pushOutcomePillClass } from '../../utils/pushOutcome'
 import { LeadHistoryModal } from '../leads/LeadHistoryModal'
 
 function initials(l: Lead) {
@@ -74,7 +75,7 @@ export function LeadLevelView({
         </div>
         <p className="lead-level-hint muted">
           Statuses: <strong>High</strong> · <strong>Moderate</strong> · <strong>Low intent</strong> ·{' '}
-          <strong>In Progress</strong>. Invalid phones stay in CRM and are never sent to Convin.
+          <strong>In Progress</strong>. Invalid phones stay in CRM and are never dialed.
         </p>
         <div className="lead-level-bar-actions">
           <button type="button" className="btn btn-primary btn-sm" onClick={onResumeCampaign}>
@@ -148,8 +149,8 @@ export function LeadLevelView({
                     </td>
                     <td>
                       <span
-                        className={`status-pill status-${l.clientStatus}`}
-                        title={clientStatusHints[l.clientStatus]}
+                        className={`status-pill ${pushOutcomePillClass(l)}`}
+                        title={l.convinPushMessage || clientStatusHints[l.clientStatus]}
                       >
                         {statusLabel(l)}
                       </span>

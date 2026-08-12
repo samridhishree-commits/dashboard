@@ -872,11 +872,20 @@ a {
   background: #f8fbff;
 }
 
-.lead-hist-modal {
-  padding: 2px 0;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+.pre-run-banner {
+  background: #f8fafc;
+  border: 1px solid #e8eef5;
+  border-radius: 10px;
+  padding: 12px 14px;
+  color: #334155;
+}
+
+.empty-campaign-panel {
+  padding: 8px 0 4px;
+}
+
+.req {
+  color: #dc2626;
 }
 
 .lead-hist-modal-clean {
@@ -1692,7 +1701,7 @@ a {
   color: #64748b;
 }
 
-.convin-push-note {
+.push-run-note {
   margin: 0 0 14px;
   padding: 10px 12px;
   font-size: 13px;
@@ -1700,9 +1709,10 @@ a {
   background: #f4f7f6;
   border: 1px solid #e4ebe9;
   border-radius: 8px;
+  color: #475569;
 }
 
-.convin-push-note code {
+.push-run-note code {
   font-size: 12px;
   background: #fff;
   padding: 1px 5px;

@@ -10,8 +10,10 @@ export type PushLeadInput = {
 
 export type PushLeadResult = {
   external_id: string | null
+  phone_number?: string
   httpStatus?: number
   status: string
+  code?: string
   lead_id?: string | null
   message?: string | null
 }

@@ -21,7 +21,48 @@ export type LeadActivity = {
 }
 
 function isPushed(lead: Lead) {
-  return lead.convinPushStatus === 'success' || lead.convinPushStatus === 'duplicate'
+  // Only a successful Convin add counts as uploaded. Duplicate/error are failures for this CRM.
+  return lead.convinPushStatus === 'success'
+}
+
+export function isLeadPushedSuccessfully(lead: Lead) {
+  return isPushed(lead)
+}
+
+/** Intent / outcome KPIs only after Convin has accepted at least one lead. */
+export function campaignHasSuccessfulRun(campaign: Campaign): boolean {
+  return campaign.leads.some((l) => isPushed(l))
+}
+
+export type CampaignLeadBuckets = {
+  fresh: Lead[]
+  used: Lead[]
+  blocked: Lead[]
+  invalid: Lead[]
+  totalActive: number
+}
+
+/** Accurate buckets for campaign modal + Run picker. */
+export function classifyCampaignLeads(campaignLeads: Lead[]): CampaignLeadBuckets {
+  const active = campaignLeads.filter((l) => !l.archived)
+  const fresh = leadsEligibleForConvinPush(active)
+  const freshIds = new Set(fresh.map((l) => l.id))
+  const used = active.filter((l) => isPushed(l))
+  const invalid = active.filter((l) => !l.phoneValid)
+  const blocked = active.filter(
+    (l) =>
+      !freshIds.has(l.id) &&
+      !isPushed(l) &&
+      l.phoneValid &&
+      (l.convinPushStatus === 'duplicate' || l.convinPushStatus === 'error'),
+  )
+  return {
+    fresh,
+    used,
+    blocked,
+    invalid,
+    totalActive: active.length,
+  }
 }
 
 /** Campaign is actively working leads (running or paused mid-flight). */
@@ -106,7 +147,8 @@ export function channelLabel(ch: Channel | 'unassigned'): string {
   return channelLifecycleLabels[ch] || ch
 }
 
-/** Skip re-push: already success/duplicate, or same phone already pushed in this campaign. */
+/** Skip re-push: already success, or same phone already successfully pushed in this campaign.
+ * Duplicates/errors can be retried after the user fixes data (new phone / new external id). */
 export function leadsEligibleForConvinPush(campaignLeads: Lead[]): Lead[] {
   const pushedPhones = new Set<string>()
   for (const l of campaignLeads) {
@@ -118,6 +160,8 @@ export function leadsEligibleForConvinPush(campaignLeads: Lead[]): Lead[] {
   return campaignLeads.filter((l) => {
     if (l.archived || !l.phoneValid) return false
     if (isPushed(l)) return false
+    // Already got duplicate for this exact lead — don't spam Convin unless phone/id changed
+    if (l.convinPushStatus === 'duplicate') return false
     const ph = normalizePhoneDigits(l.phoneE164 || l.phone_number || '')
     if (ph.length >= 10 && pushedPhones.has(ph.slice(-10))) return false
     return true

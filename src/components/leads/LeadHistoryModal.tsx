@@ -113,7 +113,7 @@ export function LeadHistoryModal({
         <div className="lead-hist-modal lead-hist-modal-clean">
           {!lead.phoneValid ? (
             <p className="lifecycle-banner lifecycle-banner-warn">
-              Invalid phone — CRM only, not sent to Convin
+              Invalid phone — CRM only, not dialed
               {lead.phoneInvalidReason ? ` (${lead.phoneInvalidReason})` : ''}.
             </p>
           ) : null}

@@ -1,6 +1,7 @@
 import type { Channel, ChannelTouchEvent, Lead } from '../types'
 import { channelVerifyLabels } from './verification'
 import { clientStatusHints, clientStatusLabels, normalizeClientStatus, type ClientLeadStatus } from './leads'
+import { isAwaitingVoicebot, pushOutcomeLabel } from './pushOutcome'
 
 export { clientStatusLabels, clientStatusHints, normalizeClientStatus }
 export type { ClientLeadStatus }
@@ -55,6 +56,9 @@ export function getChannelHistory(lead: Lead, channel?: Channel): ChannelTouchEv
 }
 
 export function statusLabel(lead: Lead): string {
+  // Until Convin accepts the lead (or webhook sets interest), show push outcome — not "In Progress"
+  const push = pushOutcomeLabel(lead)
+  if (push && lead.convinPushStatus !== 'success') return push
   return clientStatusLabels[normalizeClientStatus(lead.clientStatus)] ?? 'In Progress'
 }
 
@@ -64,6 +68,8 @@ export function statusHint(lead: Lead): string {
 
 export function currentStateLabel(lead: Lead): string {
   if (!lead.phoneValid) return 'Invalid phone'
+  const push = pushOutcomeLabel(lead)
+  if (push && lead.convinPushStatus !== 'success') return push
   if (lead.currentState) return lead.currentState
   if (lead.archived) return 'Archived'
   const s = normalizeClientStatus(lead.clientStatus)
@@ -105,7 +111,10 @@ export function countByClientStatus(leads: Lead[]) {
     moderateIntent: active.filter((l) => normalizeClientStatus(l.clientStatus) === 'moderate_intent')
       .length,
     lowIntent: active.filter((l) => normalizeClientStatus(l.clientStatus) === 'low_intent').length,
-    inProgress: active.filter((l) => normalizeClientStatus(l.clientStatus) === 'in_progress').length,
+    inProgress: active.filter(
+      (l) =>
+        normalizeClientStatus(l.clientStatus) === 'in_progress' && isAwaitingVoicebot(l),
+    ).length,
     // legacy aliases used by older UI bits
     verified: active.filter((l) => normalizeClientStatus(l.clientStatus) === 'high_intent').length,
     uninterested: active.filter((l) => normalizeClientStatus(l.clientStatus) === 'low_intent').length,

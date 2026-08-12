@@ -133,38 +133,61 @@ export async function updateCrmLeadPushResults(campaignId, results = []) {
   if (!results.length) return
   const pool = requireDb()
   const client = await pool.connect()
+  let anySuccess = false
   try {
     await client.query('BEGIN')
     for (const r of results) {
       if (!r.external_id) continue
-      const status =
-        r.status === 'success' || r.status === 'duplicate'
-          ? r.status
-          : r.status || 'error'
+      const status = r.status || 'error'
+      const code = r.code || status
+      let currentState = 'Upload failed'
+      if (status === 'success') {
+        anySuccess = true
+        currentState = 'Uploaded · In Progress'
+      } else if (code === 'duplicate_external_id') {
+        currentState = 'Duplicate external ID'
+      } else if (status === 'duplicate' || code === 'duplicate_phone') {
+        currentState = 'Duplicate phone number'
+      } else if (code === 'invalid_phone') {
+        currentState = 'Invalid phone number'
+      } else if (r.message) {
+        currentState = String(r.message).slice(0, 160)
+      }
+
+      const rawPatch = JSON.stringify({
+        convinPushCode: code,
+        convinPushMessage: r.message || null,
+      })
+
       await client.query(
         `UPDATE crm_leads SET
-           convin_lead_id = COALESCE($3, convin_lead_id),
+           convin_lead_id = CASE WHEN $3::text IS NOT NULL THEN $3 ELSE convin_lead_id END,
            convin_push_status = $4,
            convin_push_message = $5,
-           current_state = CASE
-             WHEN $4 IN ('success','duplicate') THEN 'Uploaded to Convin · In Progress'
-             ELSE COALESCE(current_state, 'Upload failed')
-           END,
+           current_state = $6,
+           phone_valid = CASE WHEN $4 = 'error' AND $7 = 'invalid_phone' THEN false ELSE phone_valid END,
+           raw = COALESCE(raw, '{}'::jsonb) || $8::jsonb,
            updated_at = NOW()
          WHERE campaign_id = $1 AND external_id = $2`,
         [
           campaignId,
           r.external_id,
-          r.lead_id ?? null,
+          status === 'success' ? r.lead_id ?? null : null,
           status,
           r.message ?? null,
+          currentState,
+          code,
+          rawPatch,
         ],
       )
     }
-    await client.query(
-      `UPDATE crm_campaigns SET status = 'running', updated_at = NOW() WHERE id = $1`,
-      [campaignId],
-    )
+    // Only mark campaign running when Convin accepted at least one lead
+    if (anySuccess) {
+      await client.query(
+        `UPDATE crm_campaigns SET status = 'running', updated_at = NOW() WHERE id = $1`,
+        [campaignId],
+      )
+    }
     await client.query('COMMIT')
   } catch (err) {
     await client.query('ROLLBACK')
@@ -312,6 +335,7 @@ function rowToLead(row, convinLead, webhookRecordings = []) {
     extractedEntities: h.extractedEntities,
     convinLeadId: row.convin_lead_id || convinLead?.lead_id || undefined,
     convinPushStatus: row.convin_push_status || undefined,
+    convinPushCode: raw.convinPushCode || undefined,
     convinPushMessage: row.convin_push_message || undefined,
   }
 }

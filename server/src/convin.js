@@ -52,7 +52,7 @@ export async function convinPost(path, payload) {
     data = {
       status: 'error',
       code: 'DECRYPT_FAILED',
-      message: err instanceof Error ? err.message : 'Failed to decrypt Convin response',
+      message: err instanceof Error ? err.message : 'Failed to decrypt upload response',
       raw: rawJson,
     }
   }
