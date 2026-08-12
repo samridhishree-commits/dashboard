@@ -2,6 +2,9 @@
 
 Meritto-style CRM for CollegeDunia institute accounts.
 
+**Local setup:** see [LOCAL_SETUP.md](./LOCAL_SETUP.md)  
+**Changes & backend backlog:** see [IMPROVEMENTS.md](./IMPROVEMENTS.md)
+
 ## Run
 
 ```bash

@@ -1,0 +1,39 @@
+---
+description: Collaborative GitHub workflow for this shared team repo
+alwaysApply: true
+---
+
+# Team GitHub workflow
+
+This repo is shared with teammates. Follow these practices every time changes are shipped.
+
+## Before changing code
+
+1. Pull latest `main` first (`git fetch` + `git pull origin main`).
+2. Never commit unfinished work directly on `main`.
+3. Create a short feature branch: `feat/…`, `fix/…`, or `docs/…`.
+
+## Scope of changes
+
+- Prefer **frontend-only** unless the user explicitly asks to change `server/`.
+- Do not mix unrelated refactors with feature work.
+- Update `IMPROVEMENTS.md` when shipping UX/flow changes or noting backend backlog.
+
+## Commit & open a PR
+
+1. Stage only relevant files (skip secrets, avoid unrelated lockfile noise).
+2. Commit with a clear message focused on **why**.
+3. Push the feature branch: `git push -u origin HEAD`.
+4. Open a PR into `main` with summary + test plan (`gh pr create`).
+5. Return the PR URL. Do **not** merge unless the user asks.
+
+## After teammate merges
+
+- Pull `main` again before starting the next task.
+- If local and remote diverge, prefer rebase/fast-forward over force-push to shared branches.
+
+## Do not
+
+- Push straight to `main` for feature work when collaborating.
+- Force-push `main` / `master`.
+- Amend commits that were already pushed unless the user explicitly asks and safety rules allow it.
