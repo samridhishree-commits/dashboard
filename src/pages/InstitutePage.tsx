@@ -19,7 +19,6 @@ import { Modal } from '../components/ui/Modal'
 import { LeadActivityNudge } from '../components/leads/LeadActivityNudge'
 import { LeadHistoryModal } from '../components/leads/LeadHistoryModal'
 import { RunLeadPickerModal } from '../components/leads/RunLeadPickerModal'
-import { CsvColumnGuide } from '../components/leads/CsvColumnGuide'
 import {
   CampaignFlowHeader,
   getCampaignFlowPhase,
@@ -737,7 +736,6 @@ export function InstitutePage() {
                   Required before you can run this campaign. You can delete this draft anytime if
                   you don’t need it.
                 </p>
-                <CsvColumnGuide />
               <div
                 className={`dropzone dropzone-prominent ${dragOver ? 'active' : ''}`}
                 onClick={() => addLeadsFileRef.current?.click()}
@@ -1254,7 +1252,6 @@ export function InstitutePage() {
             <p className="muted" style={{ margin: '0 0 10px', fontSize: 13 }}>
               Upload now or skip — empty drafts can be deleted until you add leads.
             </p>
-            <CsvColumnGuide compact />
           </div>
           <input
             ref={fileRef}
