@@ -696,26 +696,6 @@ export function InstitutePage() {
                       : freshLeadCount === 0
                         ? 'No fresh leads to push (all used, blocked, or invalid)'
                         : 'Push selected fresh leads to voicebot'
-            <>
-              <button type="button" className="btn btn-ghost" onClick={closeCampaign}>
-                Close
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={!!runningCampaignId || isEmptyCampaign || freshLeadCount === 0}
-                title={
-                  isEmptyCampaign
-                    ? 'Upload leads first'
-                    : freshLeadCount === 0
-                      ? 'No fresh leads to push (all used, blocked, or invalid)'
-                      : 'Push selected fresh leads to voicebot'
-                }
-                onClick={() => {
-                  if (activeCampaign.status === 'running') {
-                    setRunningInfoOpen(true)
-                  } else {
-                    setRunOpen(true)
                   }
                   onClick={() => {
                     if (activeCampaign.status === 'running') {

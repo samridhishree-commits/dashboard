@@ -19,6 +19,18 @@ Update this file whenever you ship frontend improvements or identify API/DB gaps
 
 ## Shipped — frontend
 
+### 2026-08-12 — Fix Vercel build after merging `main`
+
+**Goal:** Restore a clean campaign modal footer after teammate merged analytics into this branch.
+
+**Cause:** Merge of `main` (analytics page) into `feat/institute-draft-campaign-flow` duplicated/broke JSX in `InstitutePage.tsx` Run Campaign footer. Vercel preview failed (`tsc`).
+
+**Fix:** Reconstructed the footer (Close + Run Campaign). Local `npm run build` passes.
+
+**Files:** `src/pages/InstitutePage.tsx`
+
+---
+
 ### 2026-08-12 — Campaign modal: horizontal stepper + flow UX
 
 **Goal:** Clearer setup progress (industry-style stepper), summary of campaign state, remove Voicebot nav from modal.
