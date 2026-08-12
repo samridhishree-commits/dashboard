@@ -14,7 +14,6 @@ import {
   Upload,
 } from 'lucide-react'
 import { AppShell, PageCrumb } from '../components/layout/AppShell'
-import { AnalyticsSuite } from '../components/charts/AnalyticsSuite'
 import { KpiCard, KpiPopover } from '../components/ui/KpiCard'
 import { Modal } from '../components/ui/Modal'
 import { LeadActivityNudge } from '../components/leads/LeadActivityNudge'
@@ -615,10 +614,6 @@ export function InstitutePage() {
         </div>
       </section>
 
-      <div className="section-gap" id="analytics">
-        <AnalyticsSuite />
-      </div>
-
       {activeCampaign ? (
         <Modal
           xl
@@ -628,13 +623,6 @@ export function InstitutePage() {
             <>
               <button type="button" className="btn btn-ghost" onClick={closeCampaign}>
                 Close
-              </button>
-              <button
-                type="button"
-                className="btn btn-outline"
-                onClick={() => navigate(`/institute/${instituteId}/voicebot`)}
-              >
-                <Mic size={14} /> Voicebot
               </button>
               <button
                 type="button"

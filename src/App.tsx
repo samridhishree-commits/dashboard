@@ -8,6 +8,7 @@ import { InstitutePage } from './pages/InstitutePage'
 import { VoicebotPage } from './pages/VoicebotPage'
 import { ChannelPlaceholderPage } from './pages/ChannelPlaceholderPage'
 import { AllLeadsPage } from './pages/AllLeadsPage'
+import { AnalyticsPage } from './pages/AnalyticsPage'
 import { LoginPage } from './pages/LoginPage'
 import { useAuth } from './context/AuthContext'
 
@@ -50,6 +51,16 @@ export default function App() {
                 <RequireAuth>
                   <RequireInstituteAccess>
                     <AllLeadsPage />
+                  </RequireInstituteAccess>
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/institute/:instituteId/analytics"
+              element={
+                <RequireAuth>
+                  <RequireInstituteAccess>
+                    <AnalyticsPage />
                   </RequireInstituteAccess>
                 </RequireAuth>
               }
