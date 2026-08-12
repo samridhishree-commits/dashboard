@@ -193,28 +193,14 @@ export function AppShell({
           )}
 
           {instituteId ? (
-            <button
-              type="button"
-              className={`side-item ${location.pathname === base && location.hash === '#analytics' ? 'active' : ''}`}
+            <NavLink
+              to={`${base}/analytics`}
+              className={({ isActive }) => `side-item ${isActive ? 'active' : ''}`}
               title="Analytics"
-              onClick={() => {
-                const go = () => {
-                  const el = document.getElementById('analytics')
-                  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                }
-                if (location.pathname === base) {
-                  navigate(`${base}#analytics`, { replace: true })
-                  // Same route: force scroll (hash-only nav can skip remount)
-                  window.setTimeout(go, 30)
-                  window.setTimeout(go, 120)
-                } else {
-                  navigate(`${base}#analytics`)
-                }
-              }}
             >
               <BarChart3 size={16} />
               <span className="side-label">Analytics</span>
-            </button>
+            </NavLink>
           ) : (
             <span className="side-item muted-item" title="Analytics">
               <BarChart3 size={16} />

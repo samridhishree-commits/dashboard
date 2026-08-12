@@ -14,7 +14,6 @@ import {
   Upload,
 } from 'lucide-react'
 import { AppShell, PageCrumb } from '../components/layout/AppShell'
-import { AnalyticsSuite } from '../components/charts/AnalyticsSuite'
 import { KpiCard, KpiPopover } from '../components/ui/KpiCard'
 import { Modal } from '../components/ui/Modal'
 import { LeadActivityNudge } from '../components/leads/LeadActivityNudge'
@@ -665,10 +664,6 @@ export function InstitutePage() {
         </div>
       </section>
 
-      <div className="section-gap" id="analytics">
-        <AnalyticsSuite />
-      </div>
-
       {activeCampaign ? (
         <Modal
           xl
@@ -701,6 +696,26 @@ export function InstitutePage() {
                       : freshLeadCount === 0
                         ? 'No fresh leads to push (all used, blocked, or invalid)'
                         : 'Push selected fresh leads to voicebot'
+            <>
+              <button type="button" className="btn btn-ghost" onClick={closeCampaign}>
+                Close
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={!!runningCampaignId || isEmptyCampaign || freshLeadCount === 0}
+                title={
+                  isEmptyCampaign
+                    ? 'Upload leads first'
+                    : freshLeadCount === 0
+                      ? 'No fresh leads to push (all used, blocked, or invalid)'
+                      : 'Push selected fresh leads to voicebot'
+                }
+                onClick={() => {
+                  if (activeCampaign.status === 'running') {
+                    setRunningInfoOpen(true)
+                  } else {
+                    setRunOpen(true)
                   }
                   onClick={() => {
                     if (activeCampaign.status === 'running') {
