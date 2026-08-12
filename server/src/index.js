@@ -22,6 +22,7 @@ import {
 } from './crm.js'
 import { addLead, archiveLead, fetchLeads, getCampaignId } from './convin.js'
 import { classifyConvinAddResponse } from './convinPushResult.js'
+import { findAccount, issueToken, optionalAuth, requireAuth } from './auth.js'
 import { isEncryptionEnabled } from './crypto.js'
 import { dbPing, initDb } from './db.js'
 import { renderDocsHtml } from './docs.js'
@@ -46,6 +47,32 @@ app.use(
   }),
 )
 app.use(express.json({ limit: '2mb' }))
+app.use(optionalAuth)
+
+/** Joint login — fixed admin + Jain institute accounts only. */
+app.post('/api/auth/login', (req, res) => {
+  const email = req.body?.email
+  const password = req.body?.password
+  const user = findAccount(email, password)
+  if (!user) {
+    res.status(401).json({ status: 'error', message: 'Invalid email or password' })
+    return
+  }
+  const token = issueToken(user)
+  res.json({
+    status: 'success',
+    token,
+    user,
+  })
+})
+
+app.get('/api/auth/me', requireAuth, (req, res) => {
+  res.json({ status: 'success', user: req.user })
+})
+
+app.post('/api/auth/logout', (_req, res) => {
+  res.json({ status: 'success' })
+})
 
 app.get('/', (_req, res) => {
   res.redirect(302, '/docs')
@@ -292,7 +319,12 @@ app.get('/api/analytics/summary', async (_req, res) => {
  */
 app.get('/api/crm/campaigns', async (req, res) => {
   try {
-    const campaigns = await listCrmCampaigns(req.query.institute_id)
+    let instituteId = req.query.institute_id
+    // Institute users can only see their own institute campaigns
+    if (req.user?.role === 'institute') {
+      instituteId = req.user.instituteId
+    }
+    const campaigns = await listCrmCampaigns(instituteId)
     res.json({ status: 'success', count: campaigns.length, data: campaigns })
   } catch (err) {
     res.status(500).json({
@@ -323,6 +355,10 @@ app.post('/api/crm/campaigns', async (req, res) => {
     const body = req.body || {}
     if (!body.id || !body.instituteId || !body.name) {
       res.status(400).json({ status: 'error', message: 'id, instituteId, name required' })
+      return
+    }
+    if (req.user?.role === 'institute' && body.instituteId !== req.user.instituteId) {
+      res.status(403).json({ status: 'error', message: 'Cannot create campaigns for another institute' })
       return
     }
     await upsertCrmCampaign(body)

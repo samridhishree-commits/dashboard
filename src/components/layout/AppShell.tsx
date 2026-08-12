@@ -4,7 +4,6 @@ import {
   Megaphone,
   BarChart3,
   Settings,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Mic,
@@ -16,6 +15,7 @@ import {
 } from 'lucide-react'
 import { ADMIN_USER } from '../../data/mockData'
 import { WhatsAppIcon } from '../icons/WhatsAppIcon'
+import { useAuth } from '../../context/AuthContext'
 
 const channels = [
   { id: 'voicebot', label: 'Voicebot', icon: 'mic' as const },
@@ -88,8 +88,12 @@ export function AppShell({
   const navigate = useNavigate()
   const location = useLocation()
   const { instituteId } = useParams()
-  const base = instituteId ? `/institute/${instituteId}` : '/admin'
-  const isHome = location.pathname === '/admin' || location.pathname === '/'
+  const { user, logout, homePath } = useAuth()
+  const base = instituteId ? `/institute/${instituteId}` : homePath
+  const isHome =
+    location.pathname === homePath ||
+    location.pathname === '/admin' ||
+    location.pathname === '/'
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem(COLLAPSE_KEY) === '1'
@@ -106,6 +110,17 @@ export function AppShell({
     }
   }, [collapsed])
 
+  const displayName = user?.name || ADMIN_USER.label
+  const initials =
+    user?.role === 'admin'
+      ? 'CD'
+      : (user?.name || 'U')
+          .split(/\s+/)
+          .map((w) => w[0])
+          .join('')
+          .slice(0, 2)
+          .toUpperCase()
+
   return (
     <div className={`app-shell ${collapsed ? 'sidebar-collapsed' : ''}`}>
       <aside className="sidebar-one">
@@ -113,7 +128,7 @@ export function AppShell({
           <button
             type="button"
             className="rail-logo"
-            onClick={() => navigate('/admin')}
+            onClick={() => navigate(homePath)}
             title="Home"
           >
             <img
@@ -137,7 +152,7 @@ export function AppShell({
           <button
             type="button"
             className={`side-item ${isHome ? 'active' : ''}`}
-            onClick={() => navigate('/admin')}
+            onClick={() => navigate(homePath)}
             title="Home"
           >
             <Home size={16} />
@@ -242,7 +257,7 @@ export function AppShell({
               <button
                 type="button"
                 className="brand-home"
-                onClick={() => navigate('/admin')}
+                onClick={() => navigate(homePath)}
                 title="Collegedunia home"
               >
                 <img
@@ -251,14 +266,25 @@ export function AppShell({
                   className="brand-logo-img"
                 />
               </button>
-              {showAdminBadge ? <span className="brand-badge">admin</span> : null}
+              {showAdminBadge && user?.role === 'admin' ? (
+                <span className="brand-badge">admin</span>
+              ) : null}
             </div>
-            {!isHome ? <PageBack to="/admin" label="Back" /> : null}
+            {!isHome ? <PageBack to={homePath} label="Back" /> : null}
           </div>
           <div className="welcome">
-            <span>{ADMIN_USER.label}</span>
-            <div className="avatar">{ADMIN_USER.initials}</div>
-            <ChevronDown size={14} />
+            <span title={user?.email || ''}>{displayName}</span>
+            <div className="avatar">{initials}</div>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => {
+                logout()
+                navigate('/login', { replace: true })
+              }}
+            >
+              Logout
+            </button>
           </div>
         </header>
         <div className="page">{children}</div>

@@ -31,6 +31,7 @@ import {
 } from '../services/crm'
 import { filterConvinReadyLeads, toConvinPayload } from '../utils/leads'
 import { buildLeadActivityIndex, leadsEligibleForConvinPush } from '../utils/leadActivity'
+import { useAuth } from './AuthContext'
 
 const defaultFilters: GlobalFilters = {
   search: '',
@@ -95,6 +96,7 @@ function uid(prefix: string) {
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth()
   const [institutes, setInstitutes] = useState(seedInstitutes)
   const [campaigns, setCampaigns] = useState(seedCampaigns)
   const [filters, setFiltersState] = useState<GlobalFilters>(defaultFilters)
@@ -122,7 +124,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let cancelled = false
     const load = async () => {
       try {
-        const fromDb = await listCrmCampaigns()
+        const scope =
+          user?.role === 'institute' && user.instituteId ? user.instituteId : undefined
+        const fromDb = await listCrmCampaigns(scope)
         if (cancelled || !fromDb.length) return
         setCampaigns((prev) => {
           const map = new Map(prev.map((c) => [c.id, c]))
@@ -139,7 +143,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [])
+  }, [user?.role, user?.instituteId])
 
   const setFilters = useCallback((patch: Partial<GlobalFilters>) => {
     setFiltersState((prev) => ({ ...prev, ...patch }))

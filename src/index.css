@@ -3537,3 +3537,79 @@ a {
     grid-template-columns: 1fr;
   }
 }
+
+/* —— Login —— */
+.login-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(ellipse at 20% 10%, #e8f1ff 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 90%, #eef8f3 0%, transparent 45%),
+    #f7f9fc;
+}
+
+.login-card {
+  width: min(420px, 100%);
+  background: #fff;
+  border: 1px solid #e8eef5;
+  border-radius: 16px;
+  padding: 28px 24px 24px;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+}
+
+.login-brand {
+  text-align: center;
+  margin-bottom: 18px;
+}
+
+.login-brand img {
+  height: 36px;
+  width: auto;
+  margin-bottom: 10px;
+}
+
+.login-brand h1 {
+  margin: 0;
+  font-size: 22px;
+  color: #0f172a;
+}
+
+.login-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 16px;
+  padding: 4px;
+  background: #f1f5f9;
+  border-radius: 10px;
+}
+
+.login-tabs button {
+  border: none;
+  background: transparent;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.login-tabs button.active {
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+.login-form {
+  display: grid;
+  gap: 12px;
+}
+
+.login-error {
+  margin: 0;
+  font-size: 13px;
+  color: #b91c1c;
+}

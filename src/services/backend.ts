@@ -35,10 +35,21 @@ function apiBase(): string {
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const base = apiBase()
   const url = `${base}${path}`
+  let authHeader: Record<string, string> = {}
+  try {
+    const raw = localStorage.getItem('cd-crm-auth')
+    if (raw) {
+      const parsed = JSON.parse(raw) as { token?: string }
+      if (parsed?.token) authHeader = { Authorization: `Bearer ${parsed.token}` }
+    }
+  } catch {
+    /* ignore */
+  }
   const res = await fetch(url, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
+      ...authHeader,
       ...(init?.headers || {}),
     },
   })
