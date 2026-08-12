@@ -21,10 +21,14 @@ This repo is shared with teammates. Follow these practices every time changes ar
 
 ## Commit & open a PR
 
+**Do not commit or push unless the user explicitly asks** (e.g. “commit”, “push”, “open a PR”).
+
+When they do ask:
+
 1. Stage only relevant files (skip secrets, avoid unrelated lockfile noise).
 2. Commit with a clear message focused on **why**.
 3. Push the feature branch: `git push -u origin HEAD`.
-4. Open a PR into `main` with summary + test plan (`gh pr create`).
+4. Open a PR into `main` with summary + test plan (`gh pr create`) only if they asked for a PR.
 5. Return the PR URL. Do **not** merge unless the user asks.
 
 ## After teammate merges
@@ -34,6 +38,7 @@ This repo is shared with teammates. Follow these practices every time changes ar
 
 ## Do not
 
+- Commit or push on your own after finishing a code change.
 - Push straight to `main` for feature work when collaborating.
 - Force-push `main` / `master`.
 - Amend commits that were already pushed unless the user explicitly asks and safety rules allow it.

@@ -19,6 +19,63 @@ Update this file whenever you ship frontend improvements or identify API/DB gaps
 
 ## Shipped — frontend
 
+### 2026-08-12 — Login screen visual polish
+
+**Goal:** Tighter hierarchy and standard login interactions on the sign-in card only.
+
+**Behavior**
+
+- Brand line “CollegeDunia CRM” above role title; 44px inputs/button; primary-tinted role toggle with icons.
+- Password focused when email is prefilled; Left/Right arrows switch Institute/Admin.
+- Spinner on Sign in; toggle/fields disabled while busy.
+
+**Files:** `src/pages/LoginPage.tsx`, `src/index.css`
+
+---
+
+### 2026-08-12 — Login screen UX polish
+
+**Goal:** Standard sign-in patterns: clearer hierarchy, password visibility, error/caps feedback.
+
+**Behavior**
+
+- Title/hint change with Institute vs Admin.
+- Show/hide password; Caps Lock warning; fields disabled while signing in.
+- Error shown as an alert banner. Footer explains how to get access (no fake forgot-password).
+
+**Files:** `src/pages/LoginPage.tsx`, `src/index.css`
+
+---
+
+### 2026-08-12 — Login: institute user default (left)
+
+**Goal:** Primary audience first. Institute users are the common login; admin is secondary.
+
+**Behavior**
+
+- Segmented control: **Institute user** (left, default) · **Admin** (right).
+- Remembers last selected role and last email per role in `localStorage`.
+- Clears password when switching roles.
+- Radiogroup semantics (`role="radiogroup"` / `role="radio"`).
+
+**Files:** `src/pages/LoginPage.tsx`
+
+---
+
+### 2026-08-12 — Institute nav: one Dashboard item
+
+**Goal:** Stop showing Home and Dashboard as two active links to the same page for institute users.
+
+**Behavior**
+
+- Institute login: sidebar shows **Dashboard** only (no Home).
+- Admin login: **Home** = institute picker; **Dashboard** = selected institute.
+- Institute dashboard breadcrumb no longer links to `/admin`.
+
+**Files:** `src/components/layout/AppShell.tsx`, `src/pages/InstitutePage.tsx`, `src/components/channel/ChannelWorkspace.tsx`
+
+---
+
 ### 2026-08-12 — Fix Vercel build after merging `main`
 
 **Goal:** Restore a clean campaign modal footer after teammate merged analytics into this branch.
