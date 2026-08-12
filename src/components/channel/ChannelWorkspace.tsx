@@ -527,7 +527,7 @@ export function ChannelWorkspace({ channel }: { channel: Channel }) {
         <div>
           <PageCrumb
             items={[
-              { label: 'Home', to: `/institute/${instituteId}` },
+              { label: 'Dashboard', to: `/institute/${instituteId}` },
               { label: institute.name, to: `/institute/${instituteId}` },
               { label: `${channelLabels[channel]} · Campaigns` },
             ]}

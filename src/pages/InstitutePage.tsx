@@ -24,6 +24,7 @@ import {
   getCampaignFlowPhase,
 } from '../components/channel/CampaignSetupFlow'
 import { useApp } from '../context/AppContext'
+import { useAuth } from '../context/AuthContext'
 import { CSV_SAMPLE, voicebotTypeLabels } from '../data/mockData'
 import type { Lead, VoicebotType } from '../types'
 import {
@@ -59,6 +60,7 @@ function downloadSampleCsv() {
 export function InstitutePage() {
   const { instituteId = '' } = useParams()
   const navigate = useNavigate()
+  const { user } = useAuth()
   const {
     institutes,
     filters,
@@ -382,7 +384,13 @@ export function InstitutePage() {
     <AppShell showChannels>
       <div className="dash-head">
         <div>
-          <PageCrumb items={[{ label: 'Home', to: '/admin' }, { label: institute.name }]} />
+          <PageCrumb
+            items={
+              user?.role === 'admin'
+                ? [{ label: 'Home', to: '/admin' }, { label: institute.name }]
+                : [{ label: institute.name }]
+            }
+          />
           <h1 className="page-title" style={{ marginBottom: 2 }}>
             {institute.name} · Lead dashboard
           </h1>

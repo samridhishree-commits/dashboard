@@ -89,11 +89,16 @@ export function AppShell({
   const location = useLocation()
   const { instituteId } = useParams()
   const { user, logout, homePath } = useAuth()
+  const isInstituteUser = user?.role === 'institute'
   const base = instituteId ? `/institute/${instituteId}` : homePath
-  const isHome =
-    location.pathname === homePath ||
-    location.pathname === '/admin' ||
-    location.pathname === '/'
+  const isAdminHome =
+    !isInstituteUser &&
+    (location.pathname === homePath ||
+      location.pathname === '/admin' ||
+      location.pathname === '/')
+  const isInstituteDashboard =
+    Boolean(instituteId) &&
+    (location.pathname === base || location.pathname === `${base}/`)
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem(COLLAPSE_KEY) === '1'
@@ -149,19 +154,9 @@ export function AppShell({
         </div>
 
         <nav className="sidebar-nav">
-          <button
-            type="button"
-            className={`side-item ${isHome ? 'active' : ''}`}
-            onClick={() => navigate(homePath)}
-            title="Home"
-          >
-            <Home size={16} />
-            <span className="side-label">Home</span>
-          </button>
-
-          {instituteId ? (
+          {isInstituteUser ? (
             <NavLink
-              to={base}
+              to={homePath}
               end
               className={({ isActive }) => `side-item ${isActive ? 'active' : ''}`}
               title="Dashboard"
@@ -170,11 +165,35 @@ export function AppShell({
               <span className="side-label">Dashboard</span>
             </NavLink>
           ) : (
-            <span className="side-item muted-item" title="Dashboard">
-              <Megaphone size={16} />
-              <span className="side-label">Dashboard</span>
-            </span>
+            <button
+              type="button"
+              className={`side-item ${isAdminHome ? 'active' : ''}`}
+              onClick={() => navigate(homePath)}
+              title="Home"
+            >
+              <Home size={16} />
+              <span className="side-label">Home</span>
+            </button>
           )}
+
+          {!isInstituteUser ? (
+            instituteId ? (
+              <NavLink
+                to={base}
+                end
+                className={({ isActive }) => `side-item ${isActive ? 'active' : ''}`}
+                title="Dashboard"
+              >
+                <Megaphone size={16} />
+                <span className="side-label">Dashboard</span>
+              </NavLink>
+            ) : (
+              <span className="side-item muted-item" title="Dashboard">
+                <Megaphone size={16} />
+                <span className="side-label">Dashboard</span>
+              </span>
+            )
+          ) : null}
 
           {instituteId ? (
             <NavLink
@@ -256,7 +275,7 @@ export function AppShell({
                 <span className="brand-badge">admin</span>
               ) : null}
             </div>
-            {!isHome ? <PageBack to={homePath} label="Back" /> : null}
+            {!isAdminHome && !isInstituteDashboard ? <PageBack to={homePath} label="Back" /> : null}
           </div>
           <div className="welcome">
             <span title={user?.email || ''}>{displayName}</span>
