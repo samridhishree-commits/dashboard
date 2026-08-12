@@ -19,6 +19,10 @@ import { Modal } from '../components/ui/Modal'
 import { LeadActivityNudge } from '../components/leads/LeadActivityNudge'
 import { LeadHistoryModal } from '../components/leads/LeadHistoryModal'
 import { RunLeadPickerModal } from '../components/leads/RunLeadPickerModal'
+import {
+  CampaignFlowHeader,
+  getCampaignFlowPhase,
+} from '../components/channel/CampaignSetupFlow'
 import { useApp } from '../context/AppContext'
 import { CSV_SAMPLE, voicebotTypeLabels } from '../data/mockData'
 import type { Lead, VoicebotType } from '../types'
@@ -34,6 +38,10 @@ import {
   classifyCampaignLeads,
   leadsEligibleForConvinPush,
 } from '../utils/leadActivity'
+import {
+  draftCampaignHint,
+  isUnusedDraftCampaign,
+} from '../utils/campaignDraft'
 import { parseLeadsCsv } from '../utils/parseLeadsCsv'
 import { normalizeClientStatus, statusLabel } from '../utils/lifecycle'
 import { isAwaitingVoicebot, pushOutcomePillClass } from '../utils/pushOutcome'
@@ -70,6 +78,7 @@ export function InstitutePage() {
     clearLastPushError,
     addLeadsToCampaign,
     deleteLeads,
+    deleteDraftCampaign,
   } = useApp()
 
   const institute = institutes.find((i) => i.id === instituteId)
@@ -221,6 +230,7 @@ export function InstitutePage() {
     ? leadsEligibleForConvinPush(filterConvinReadyLeads(activeCampaign.leads)).length
     : 0
   const isEmptyCampaign = Boolean(activeCampaign && !activeCampaign.leads.length)
+  const campaignFlowPhase = activeCampaign ? getCampaignFlowPhase(activeCampaign) : 'upload'
 
   const uploadStats = useMemo(() => {
     const valid = parsedLeads.filter((l) => l.phoneValid).length
@@ -298,6 +308,22 @@ export function InstitutePage() {
       return new Set(selectableVisible.map((l) => l.id))
     })
   }
+
+  const handleDeleteDraft = (campaignId: string, campaignName: string) => {
+    const ok = window.confirm(
+      `Delete draft "${campaignName}"? This empty campaign has no leads and was never run.`,
+    )
+    if (!ok) return
+    const removed = deleteDraftCampaign(campaignId)
+    if (removed) {
+      setCampaignNotice({
+        title: 'Draft removed',
+        summary: `"${campaignName}" was removed from your campaign list.`,
+      })
+    }
+  }
+
+  const activeIsUnusedDraft = activeCampaign ? isUnusedDraftCampaign(activeCampaign) : false
 
   const handleDeleteSelected = async () => {
     if (!activeCampaign || !selectedDeletable.length || deletingLeads) return
@@ -582,27 +608,51 @@ export function InstitutePage() {
         <div className="panel-body">
           {filteredCampaigns.length ? (
             <div className="campaign-list">
-              {filteredCampaigns.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  className="campaign-item"
-                  onClick={() => openCampaignTab(c)}
-                >
-                  <div>
-                    <h4>
-                      {c.name}{' '}
-                      <span className={`status-pill status-${c.status}`}>{c.status}</span>
-                    </h4>
-                    <p className="muted" style={{ margin: 0 }}>
-                      {c.course} · {c.leads.filter((l) => !l.archived).length} leads · {c.createdAt}
-                    </p>
-                  </div>
+              {filteredCampaigns.map((c) => {
+                const unusedDraft = isUnusedDraftCampaign(c)
+                const draftHint = draftCampaignHint(c)
+                return (
+                  <div
+                    key={c.id}
+                    className={`campaign-row ${unusedDraft ? 'campaign-row-draft' : ''}`}
+                  >
+                    <button
+                      type="button"
+                      className="campaign-item"
+                      onClick={() => openCampaignTab(c)}
+                    >
+                      <div>
+                        <h4>
+                          {c.name}{' '}
+                          <span className={`status-pill status-${c.status}`}>{c.status}</span>
+                          {unusedDraft ? (
+                            <span className="campaign-draft-tag">No leads yet</span>
+                          ) : null}
+                        </h4>
+                        <p className="muted" style={{ margin: 0 }}>
+                          {c.course} · {c.leads.filter((l) => !l.archived).length} leads ·{' '}
+                          {c.createdAt}
+                          {draftHint ? ` · ${draftHint}` : ''}
+                        </p>
+                      </div>
                       <span className="btn btn-outline btn-sm" style={{ pointerEvents: 'none' }}>
                         Open
                       </span>
-                </button>
-              ))}
+                    </button>
+                    {unusedDraft ? (
+                      <button
+                        type="button"
+                        className="campaign-delete-btn"
+                        title="Delete unused draft"
+                        aria-label={`Delete draft ${c.name}`}
+                        onClick={() => handleDeleteDraft(c.id, c.name)}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    ) : null}
+                  </div>
+                )
+              })}
             </div>
           ) : (
             <div className="empty">
@@ -620,58 +670,74 @@ export function InstitutePage() {
           title={activeCampaign.name}
           onClose={closeCampaign}
           footer={
-            <>
-              <button type="button" className="btn btn-ghost" onClick={closeCampaign}>
-                Close
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={!!runningCampaignId || isEmptyCampaign || freshLeadCount === 0}
-                title={
-                  isEmptyCampaign
-                    ? 'Upload leads first'
-                    : freshLeadCount === 0
-                      ? 'No fresh leads to push (all used, blocked, or invalid)'
-                      : 'Push selected fresh leads to voicebot'
-                }
-                onClick={() => {
-                  if (activeCampaign.status === 'running') {
-                    setRunningInfoOpen(true)
-                  } else {
-                    setRunOpen(true)
+            <div className="campaign-modal-footer">
+              <div className="campaign-modal-footer-left">
+                {activeIsUnusedDraft ? (
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-sm lead-delete-btn"
+                    onClick={() => handleDeleteDraft(activeCampaign.id, activeCampaign.name)}
+                  >
+                    <Trash2 size={13} /> Delete draft
+                  </button>
+                ) : null}
+              </div>
+              <div className="campaign-modal-footer-right">
+                <button type="button" className="btn btn-ghost" onClick={closeCampaign}>
+                  Close
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={!!runningCampaignId || isEmptyCampaign || freshLeadCount === 0}
+                  title={
+                    isEmptyCampaign
+                      ? 'Upload leads first'
+                      : freshLeadCount === 0
+                        ? 'No fresh leads to push (all used, blocked, or invalid)'
+                        : 'Push selected fresh leads to voicebot'
                   }
-                }}
-              >
-                <Play size={14} /> Run Campaign
-              </button>
-            </>
+                  onClick={() => {
+                    if (activeCampaign.status === 'running') {
+                      setRunningInfoOpen(true)
+                    } else {
+                      setRunOpen(true)
+                    }
+                  }}
+                >
+                  <Play size={14} /> Run Campaign
+                </button>
+              </div>
+            </div>
           }
         >
-          <p className="muted" style={{ margin: '0 0 12px', fontSize: 12 }}>
-            Status:{' '}
-            <span className={`status-pill status-${activeCampaign.status}`}>
-              {activeCampaign.status}
-            </span>
-            {!showCampaignMetrics ? (
-              <span> · Intent metrics unlock after at least one lead is accepted for dialing</span>
-            ) : null}
-          </p>
+          {activeCampaign ? (
+            <CampaignFlowHeader
+              campaign={activeCampaign}
+              phase={campaignFlowPhase}
+              freshLeadCount={freshLeadCount}
+            />
+          ) : null}
 
           {isEmptyCampaign ? (
             <div className="empty-campaign-panel">
-              <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>Upload leads to continue</h3>
-              <p className="muted" style={{ margin: '0 0 14px', fontSize: 13 }}>
-                This campaign has no leads yet. Upload a CSV to unlock Run Campaign. Outcome metrics
-                appear only after a successful voicebot run.
-              </p>
-              <div style={{ marginBottom: 10 }}>
-                <button type="button" className="btn btn-success btn-sm" onClick={downloadSampleCsv}>
-                  <Download size={13} /> Sample CSV
-                </button>
-              </div>
+              <div className="campaign-upload-panel">
+                <div className="campaign-upload-panel-head">
+                  <h3>Upload leads CSV</h3>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-sample-csv"
+                    onClick={downloadSampleCsv}
+                  >
+                    <Download size={13} /> Sample CSV
+                  </button>
+                </div>
+                <p className="muted campaign-upload-panel-note">
+                  Required before you can run this campaign. You can delete this draft anytime if
+                  you don’t need it.
+                </p>
               <div
-                className={`dropzone ${dragOver ? 'active' : ''}`}
+                className={`dropzone dropzone-prominent ${dragOver ? 'active' : ''}`}
                 onClick={() => addLeadsFileRef.current?.click()}
                 onDragOver={(e) => {
                   e.preventDefault()
@@ -699,7 +765,10 @@ export function InstitutePage() {
                 }}
               >
                 <Upload size={20} />
-                <div>Drag & drop CSV or click to upload leads (required)</div>
+                <div>
+                  <strong>Upload leads CSV</strong>
+                  <span className="muted">Drag & drop or click to browse</span>
+                </div>
               </div>
               <input
                 ref={addLeadsFileRef}
@@ -725,6 +794,7 @@ export function InstitutePage() {
                   e.target.value = ''
                 }}
               />
+              </div>
             </div>
           ) : (
             <>
@@ -1079,7 +1149,7 @@ export function InstitutePage() {
 
       {createOpen ? (
         <Modal
-          title="Add Campaign"
+          title="New campaign"
           large
           onClose={() => {
             setCreateOpen(false)
@@ -1090,7 +1160,17 @@ export function InstitutePage() {
           }}
           footer={
             <>
-              <button type="button" className="btn btn-ghost" onClick={() => setCreateOpen(false)}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  setCreateOpen(false)
+                  setParsedLeads([])
+                  setFileName('')
+                  setCampName('')
+                  setCampCourse('')
+                }}
+              >
                 Cancel
               </button>
               <button
@@ -1110,12 +1190,13 @@ export function InstitutePage() {
                   setCampaignNotice(
                     parsedLeads.length
                       ? {
-                          title: 'Campaign created',
-                          summary: `Campaign created and ${parsedLeads.length} lead(s) added.`,
+                          title: 'Campaign ready',
+                          summary: `Created with ${parsedLeads.length} lead(s). You can run voicebot when ready.`,
                         }
                       : {
-                          title: 'Campaign created',
-                          summary: 'Campaign created. Upload leads to continue.',
+                          title: 'Draft campaign saved',
+                          summary:
+                            'No leads yet — upload later from the campaign, or delete the draft if unused.',
                         },
                   )
                   setParsedLeads([])
@@ -1124,11 +1205,15 @@ export function InstitutePage() {
                   setCampCourse('')
                 }}
               >
-                Create campaign
+                {parsedLeads.length ? 'Create with leads' : 'Save as draft'}
               </button>
             </>
           }
         >
+          <p className="create-campaign-intro">
+            Name your campaign and course first. Lead upload is <strong>optional</strong> — save an
+            empty draft and add CSV later.
+          </p>
           <div className="form-grid" style={{ marginBottom: 10 }}>
             <div className="field">
               <label>
@@ -1153,18 +1238,20 @@ export function InstitutePage() {
               </select>
             </div>
           </div>
-          <div className="howto">
-            <h3>Lead upload (optional)</h3>
-            <ol>
-              <li>You can create the campaign now and upload leads later</li>
-              <li>Or upload a CSV here before creating</li>
-              <li>phone_number* is required in the CSV when you do upload</li>
-            </ol>
-          </div>
-          <div style={{ margin: '12px 0' }}>
-            <button type="button" className="btn btn-success" onClick={downloadSampleCsv}>
-              <Download size={14} /> Download Sample CSV
-            </button>
+          <div className="create-campaign-upload">
+            <div className="create-campaign-upload-head">
+              <h3>Lead upload <span className="optional-tag">Optional</span></h3>
+              <button
+                type="button"
+                className="btn btn-sm btn-sample-csv"
+                onClick={downloadSampleCsv}
+              >
+                <Download size={13} /> Sample CSV
+              </button>
+            </div>
+            <p className="muted" style={{ margin: '0 0 10px', fontSize: 13 }}>
+              Upload now or skip — empty drafts can be deleted until you add leads.
+            </p>
           </div>
           <input
             ref={fileRef}

@@ -29,6 +29,11 @@ import {
   saveCrmLeads,
   saveCrmPushResults,
 } from '../services/crm'
+import {
+  getHiddenDraftCampaignIds,
+  hideDraftCampaignLocally,
+  isUnusedDraftCampaign,
+} from '../utils/campaignDraft'
 import { filterConvinReadyLeads, toConvinPayload } from '../utils/leads'
 import { buildLeadActivityIndex, leadsEligibleForConvinPush } from '../utils/leadActivity'
 import { useAuth } from './AuthContext'
@@ -83,6 +88,7 @@ interface AppState {
   ) => Promise<void>
   archiveLead: (campaignId: string, leadId: string) => Promise<void>
   deleteLeads: (campaignId: string, leadIds: string[]) => Promise<void>
+  deleteDraftCampaign: (campaignId: string) => boolean
   setCampaignStatus: (campaignId: string, status: CampaignStatus) => void
   lastPushError: string | null
   lastPushNotice: PushNotice | null
@@ -128,10 +134,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           user?.role === 'institute' && user.instituteId ? user.instituteId : undefined
         const fromDb = await listCrmCampaigns(scope)
         if (cancelled || !fromDb.length) return
+        const hidden = getHiddenDraftCampaignIds()
         setCampaigns((prev) => {
           const map = new Map(prev.map((c) => [c.id, c]))
-          for (const c of fromDb) map.set(c.id, c)
-          return Array.from(map.values())
+          for (const c of fromDb) {
+            if (!hidden.has(c.id)) map.set(c.id, c)
+          }
+          return Array.from(map.values()).filter((c) => !hidden.has(c.id))
         })
       } catch (err) {
         console.warn('[crm] load campaigns failed', err)
@@ -621,6 +630,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [campaigns])
 
+  const deleteDraftCampaign = useCallback((campaignId: string) => {
+    const campaign = campaigns.find((c) => c.id === campaignId)
+    if (!campaign || !isUnusedDraftCampaign(campaign)) return false
+    hideDraftCampaignLocally(campaignId)
+    setCampaigns((prev) => prev.filter((c) => c.id !== campaignId))
+    setOpenTabs((prev) => prev.filter((t) => t.campaignId !== campaignId))
+    if (activeCampaignId === campaignId) setActiveCampaignId(null)
+    if (activeTabId) {
+      const tab = openTabs.find((t) => t.id === activeTabId)
+      if (tab?.campaignId === campaignId) setActiveTabId(null)
+    }
+    return true
+  }, [campaigns, activeCampaignId, activeTabId, openTabs])
+
   const setCampaignStatus = useCallback((campaignId: string, status: CampaignStatus) => {
     setCampaigns((prev) =>
       prev.map((c) => (c.id === campaignId ? { ...c, status } : c)),
@@ -679,6 +702,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       startVoicebotRun,
       archiveLead,
       deleteLeads,
+      deleteDraftCampaign,
       setCampaignStatus,
       getCampaign,
       instituteCampaigns,
@@ -707,6 +731,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       startVoicebotRun,
       archiveLead,
       deleteLeads,
+      deleteDraftCampaign,
       setCampaignStatus,
       getCampaign,
       instituteCampaigns,
