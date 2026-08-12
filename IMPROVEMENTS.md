@@ -19,6 +19,20 @@ Update this file whenever you ship frontend improvements or identify API/DB gaps
 
 ## Shipped — frontend
 
+### 2026-08-12 — Show CSV columns (required vs optional)
+
+**Goal:** Users can see what to put in the lead CSV without downloading the sample first.
+
+**Behavior**
+
+- Required: `phone_number` (aliases: phone, mobile). Indian 10-digit mobile.
+- Optional: first_name, last_name, email, city, state, course, source, lead_id.
+- Shown on New campaign modal, empty-draft upload panel, and channel Upload leads modal.
+
+**Files:** `src/components/leads/CsvColumnGuide.tsx`, `src/pages/InstitutePage.tsx`, `src/components/channel/ChannelWorkspace.tsx`, `src/index.css`
+
+---
+
 ### 2026-08-12 — Fix Vercel build after merging `main`
 
 **Goal:** Restore a clean campaign modal footer after teammate merged analytics into this branch.

@@ -2090,6 +2090,102 @@ a {
   font-size: 13px;
 }
 
+.csv-guide {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid #e8eef5;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.csv-guide-intro {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #475569;
+}
+
+.csv-guide-groups {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 18px;
+}
+
+.csv-guide-group h4 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  font-size: 12px;
+}
+
+.csv-guide-group ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.csv-guide-group li {
+  display: grid;
+  gap: 1px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.csv-guide-group code {
+  font-size: 11.5px;
+  font-weight: 650;
+  color: #0f172a;
+  background: #f1f5f9;
+  padding: 1px 6px;
+  border-radius: 4px;
+  width: fit-content;
+}
+
+.csv-guide-group span {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.csv-guide-group em {
+  font-style: normal;
+  font-size: 10px;
+  color: #94a3b8;
+}
+
+.csv-req-badge,
+.csv-opt-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.csv-req-badge {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.csv-opt-badge {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.csv-guide--compact .csv-guide-groups {
+  gap: 10px 14px;
+}
+
+@media (max-width: 640px) {
+  .csv-guide-groups {
+    grid-template-columns: 1fr;
+  }
+}
+
 .campaign-flow-steps {
   list-style: none;
   margin: 0 0 16px;

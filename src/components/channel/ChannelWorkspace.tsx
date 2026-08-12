@@ -6,6 +6,7 @@ import { CampaignCard } from './CampaignCard'
 import { CampaignAnalytics } from './CampaignAnalytics'
 import { LeadLevelView } from './LeadLevelView'
 import { RunLeadPickerModal } from '../leads/RunLeadPickerModal'
+import { CsvColumnGuide } from '../leads/CsvColumnGuide'
 import { KpiCard } from '../ui/KpiCard'
 import { Modal } from '../ui/Modal'
 import { useApp } from '../../context/AppContext'
@@ -305,6 +306,7 @@ export function ChannelWorkspace({ channel }: { channel: Channel }) {
               Adds leads into <strong>{selected.name}</strong> ({selected.status}). Invalid phones
               stay in CRM and are never dialed.
             </p>
+            <CsvColumnGuide compact />
             <div className="create-upload-block">
               <div className="create-upload-head">
                 <span>Lead CSV</span>
