@@ -24,7 +24,7 @@ import {
 } from 'lucide-react'
 import type { Campaign } from '../../types'
 import { ChartReady } from '../charts/ChartReady'
-import { CHART, noPointEnds } from '../charts/chartTheme'
+import { CHART, noPointEnds, pieLegendLabel, pieSliceLabel } from '../charts/chartTheme'
 import {
   clientStatusLabels,
   isInterestedStatus,
@@ -338,8 +338,8 @@ export function CampaignAnalytics({ campaign }: { campaign: Campaign }) {
                 </div>
               </div>
               <div className="fx-donut-wrap">
-                <ChartReady height={210} remountKey={`${campaign.id}-mix`}>
-                  <ResponsiveContainer width="100%" height={210}>
+                <ChartReady height={260} remountKey={`${campaign.id}-mix`}>
+                  <ResponsiveContainer width="100%" height={260}>
                     <PieChart>
                       <Pie
                         data={
@@ -358,6 +358,10 @@ export function CampaignAnalytics({ campaign }: { campaign: Campaign }) {
                         paddingAngle={1}
                         stroke="#fff"
                         strokeWidth={1}
+                        label={mixData.length ? pieSliceLabel : false}
+                        labelLine={
+                          mixData.length ? { stroke: '#94a3b8', strokeWidth: 1 } : false
+                        }
                       >
                         {(mixData.length ? mixData : [{ color: '#e2e8f0' }]).map((d, i) => (
                           <Cell key={i} fill={d.color} />
@@ -381,11 +385,11 @@ export function CampaignAnalytics({ campaign }: { campaign: Campaign }) {
                           }}
                         />
                       </Pie>
-                      <Tooltip contentStyle={CHART.tooltip} />
                       <Legend
                         verticalAlign="bottom"
                         iconType="circle"
                         wrapperStyle={{ fontSize: 12 }}
+                        formatter={pieLegendLabel}
                       />
                     </PieChart>
                   </ResponsiveContainer>

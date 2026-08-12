@@ -169,10 +169,12 @@ export function CampaignFlowHeader({ campaign, phase, freshLeadCount }: Campaign
         </ol>
       </div>
 
-      <div className={`campaign-flow-callout campaign-flow-callout--${phase}`}>
-        <strong>{msg.title}</strong>
-        <p>{msg.detail}</p>
-      </div>
+      {phase !== 'upload' ? (
+        <div className={`campaign-flow-callout campaign-flow-callout--${phase}`}>
+          <strong>{msg.title}</strong>
+          <p>{msg.detail}</p>
+        </div>
+      ) : null}
     </div>
   )
 }

@@ -301,9 +301,8 @@ export function ChannelWorkspace({ channel }: { channel: Channel }) {
               </>
             }
           >
-            <p className="muted" style={{ marginTop: 0 }}>
-              Adds leads into <strong>{selected.name}</strong> ({selected.status}). Invalid phones
-              stay in CRM and are never dialed.
+            <p className="csv-must">
+              CSV must include <strong>phone_number</strong>
             </p>
             <div className="create-upload-block">
               <div className="create-upload-head">

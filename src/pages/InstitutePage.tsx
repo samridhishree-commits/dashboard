@@ -384,15 +384,11 @@ export function InstitutePage() {
     <AppShell showChannels>
       <div className="dash-head">
         <div>
-          <PageCrumb
-            items={
-              user?.role === 'admin'
-                ? [{ label: 'Home', to: '/admin' }, { label: institute.name }]
-                : [{ label: institute.name }]
-            }
-          />
+          {user?.role === 'admin' ? (
+            <PageCrumb items={[{ label: 'Home', to: '/admin' }, { label: institute.name }]} />
+          ) : null}
           <h1 className="page-title" style={{ marginBottom: 2 }}>
-            {institute.name} · Lead dashboard
+            {user?.role === 'admin' ? `${institute.name} · Lead dashboard` : 'Lead dashboard'}
           </h1>
           <p className="page-sub" style={{ marginBottom: 0 }}>
             L1 qualification · upload leads · run channels
@@ -740,9 +736,8 @@ export function InstitutePage() {
                     <Download size={13} /> Sample CSV
                   </button>
                 </div>
-                <p className="muted campaign-upload-panel-note">
-                  Required before you can run this campaign. You can delete this draft anytime if
-                  you don’t need it.
+                <p className="csv-must">
+                  CSV must include <strong>phone_number</strong>
                 </p>
               <div
                 className={`dropzone dropzone-prominent ${dragOver ? 'active' : ''}`}
@@ -774,7 +769,6 @@ export function InstitutePage() {
               >
                 <Upload size={20} />
                 <div>
-                  <strong>Upload leads CSV</strong>
                   <span className="muted">Drag & drop or click to browse</span>
                 </div>
               </div>
@@ -1257,8 +1251,8 @@ export function InstitutePage() {
                 <Download size={13} /> Sample CSV
               </button>
             </div>
-            <p className="muted" style={{ margin: '0 0 10px', fontSize: 13 }}>
-              Upload now or skip — empty drafts can be deleted until you add leads.
+            <p className="csv-must">
+              CSV must include <strong>phone_number</strong>
             </p>
           </div>
           <input

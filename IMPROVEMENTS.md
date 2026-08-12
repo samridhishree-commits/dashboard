@@ -19,6 +19,32 @@ Update this file whenever you ship frontend improvements or identify API/DB gaps
 
 ## Shipped — frontend
 
+### 2026-08-12 — Brand lockup in sidebar only
+
+**Goal:** CollegeDunia logo + name live in the dark left pane, not the white top bar. Official lockup on a white plate (same as login); collapse in the sidebar footer.
+
+**Files:** `src/components/layout/AppShell.tsx`, `src/index.css`
+
+---
+
+### 2026-08-12 — Pie charts: labels always visible
+
+**Goal:** Name, count, and % visible without hovering.
+
+**Files:** `src/components/charts/chartTheme.ts`, `CampaignAnalytics.tsx`, `AnalyticsSuite.tsx`
+
+---
+
+### 2026-08-12 — CSV required field hint
+
+**Goal:** Show the one mandatory CSV column without extra UI.
+
+**Behavior:** Bold line `Required: phone_number` on campaign upload surfaces.
+
+**Files:** `src/pages/InstitutePage.tsx`, `src/components/channel/ChannelWorkspace.tsx`, `src/index.css`
+
+---
+
 ### 2026-08-12 — Login screen visual polish
 
 **Goal:** Tighter hierarchy and standard login interactions on the sign-in card only.

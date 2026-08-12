@@ -12,10 +12,12 @@ import {
   Home,
   ArrowLeft,
   Users,
+  LogOut,
 } from 'lucide-react'
 import { ADMIN_USER } from '../../data/mockData'
 import { WhatsAppIcon } from '../icons/WhatsAppIcon'
 import { useAuth } from '../../context/AuthContext'
+import { useApp } from '../../context/AppContext'
 
 const channels = [
   { id: 'voicebot', label: 'Voicebot', icon: 'mic' as const },
@@ -89,6 +91,8 @@ export function AppShell({
   const location = useLocation()
   const { instituteId } = useParams()
   const { user, logout, homePath } = useAuth()
+  const { institutes } = useApp()
+  const currentInstitute = institutes.find((i) => i.id === instituteId)
   const isInstituteUser = user?.role === 'institute'
   const base = instituteId ? `/institute/${instituteId}` : homePath
   const isAdminHome =
@@ -132,24 +136,15 @@ export function AppShell({
         <div className="sidebar-top">
           <button
             type="button"
-            className="rail-logo"
+            className="sidebar-brand"
             onClick={() => navigate(homePath)}
-            title="Home"
+            title="CollegeDunia"
           >
             <img
               src="/collegedunia-logo.png"
-              alt="Collegedunia"
-              className="rail-logo-img"
+              alt="CollegeDunia"
+              className="sidebar-brand-img"
             />
-          </button>
-          <button
-            type="button"
-            className="sidebar-toggle"
-            onClick={() => setCollapsed((v) => !v)}
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
           </button>
         </div>
 
@@ -249,45 +244,53 @@ export function AppShell({
           ) : null}
         </nav>
 
-        <button type="button" className="side-item settings-item" title="Settings">
-          <Settings size={16} />
-          <span className="side-label">Settings</span>
-        </button>
+        <div className="sidebar-foot">
+          <button type="button" className="side-item settings-item" title="Settings">
+            <Settings size={16} />
+            <span className="side-label">Settings</span>
+          </button>
+          <button
+            type="button"
+            className="side-item sidebar-toggle"
+            onClick={() => setCollapsed((v) => !v)}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+            <span className="side-label">{collapsed ? 'Expand' : 'Collapse'}</span>
+          </button>
+        </div>
       </aside>
 
       <div className="main-col">
         <header className="topbar">
-          <div className="stack-h">
-            <div className="brand">
-              <button
-                type="button"
-                className="brand-home"
-                onClick={() => navigate(homePath)}
-                title="Collegedunia home"
-              >
-                <img
-                  src="/collegedunia-logo.png"
-                  alt="collegedunia"
-                  className="brand-logo-img"
-                />
-              </button>
-              {showAdminBadge && user?.role === 'admin' ? (
-                <span className="brand-badge">admin</span>
-              ) : null}
-            </div>
-            {!isAdminHome && !isInstituteDashboard ? <PageBack to={homePath} label="Back" /> : null}
+          <div className="topbar-left">
+            {!isAdminHome && !isInstituteDashboard ? (
+              <PageBack to={homePath} label="Back" />
+            ) : null}
+            {currentInstitute && user?.role === 'admin' ? (
+              <span className="topbar-context">{currentInstitute.name}</span>
+            ) : null}
           </div>
-          <div className="welcome">
-            <span title={user?.email || ''}>{displayName}</span>
-            <div className="avatar">{initials}</div>
+          <div className="topbar-user">
+            <span className="topbar-user-name" title={user?.email || ''}>
+              {displayName}
+            </span>
+            {showAdminBadge && user?.role === 'admin' ? (
+              <span className="brand-badge">admin</span>
+            ) : null}
+            <div className="avatar" aria-hidden>
+              {initials}
+            </div>
             <button
               type="button"
-              className="btn btn-ghost btn-sm"
+              className="btn btn-outline btn-sm topbar-logout"
               onClick={() => {
                 logout()
                 navigate('/login', { replace: true })
               }}
             >
+              <LogOut size={14} />
               Logout
             </button>
           </div>

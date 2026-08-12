@@ -25,7 +25,7 @@ import {
 import { DateRangeBtn, Panel } from '../ui/Panel'
 import { Filter } from 'lucide-react'
 import { VerifiedLeadsPanel } from '../leads/VerifiedLeadsPanel'
-import { CHART, noPointEnds } from './chartTheme'
+import { CHART, noPointEnds, pieLegendLabel, pieSliceLabel } from './chartTheme'
 
 function FilterTools() {
   return (
@@ -269,7 +269,7 @@ export function AnalyticsSuite() {
             ] as const
           ).map(([label, data]) => (
             <div className="donut-cell fx-mini-donut" key={label}>
-              <ResponsiveContainer width="100%" height={260}>
+              <ResponsiveContainer width="100%" height={280}>
                 <PieChart>
                   <Pie
                     data={data}
@@ -280,13 +280,18 @@ export function AnalyticsSuite() {
                     paddingAngle={1}
                     stroke="#fff"
                     strokeWidth={1}
+                    label={pieSliceLabel}
+                    labelLine={{ stroke: '#94a3b8', strokeWidth: 1 }}
                   >
                     {data.map((entry, i) => (
                       <Cell key={entry.name} fill={CHART.donut[i % CHART.donut.length]} />
                     ))}
                   </Pie>
-                  <Tooltip contentStyle={CHART.tooltip} />
-                  <Legend iconType="circle" wrapperStyle={{ fontSize: 11, color: '#64748b' }} />
+                  <Legend
+                    iconType="circle"
+                    wrapperStyle={{ fontSize: 11, color: '#64748b' }}
+                    formatter={pieLegendLabel}
+                  />
                   <text
                     x="50%"
                     y="44%"

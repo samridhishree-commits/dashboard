@@ -34,3 +34,24 @@ export const noPointEnds = {
   dot: false as const,
   activeDot: false as const,
 }
+
+/** Always-visible pie slice text (name + %). Hide empty slices. */
+export function pieSliceLabel({
+  name,
+  percent,
+  value,
+}: {
+  name?: string
+  percent?: number
+  value?: number
+}) {
+  if (!value) return ''
+  const pct = Math.round((percent ?? 0) * 100)
+  return `${name} ${pct}%`
+}
+
+/** Legend shows count so hover is not required. */
+export function pieLegendLabel(name: string, entry: { payload?: { value?: number } }) {
+  const n = entry?.payload?.value
+  return n == null ? String(name) : `${name} · ${n}`
+}
